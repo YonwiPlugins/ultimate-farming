@@ -102,6 +102,14 @@ final class FarmingPanel extends PluginPanel {
   private Consumer<Map<String, Integer>> kitCounts = counts -> {};
 
   /** Receives how many of each kit item to bring, for the bank filter's counts. */
+  private Consumer<Boolean> preparingChanged = preparing -> {};
+
+  /** Told whether a run is prepared but not yet begun (the bank button shows only then). */
+  void setPreparing(Consumer<Boolean> preparingChanged) {
+    this.preparingChanged = preparingChanged;
+    updateGuide();
+  }
+
   void setKitCounts(Consumer<Map<String, Integer>> kitCounts) {
     this.kitCounts = kitCounts;
     sendKitOrder();
@@ -1742,6 +1750,12 @@ final class FarmingPanel extends PluginPanel {
 
   private void updateGuide() {
     if (disposed) return;
+    // Prepared but nothing done yet: the bank button is wanted until the first step of the run.
+    preparingChanged.accept(
+        prepared
+            && session == null
+            && settings.completed.isEmpty()
+            && settings.progress.isEmpty());
     if (guideIndex >= route.size()) guideIndex = 0;
     if (!route.isEmpty() && settings.completed.contains(route.get(guideIndex).patch.id)) {
       guideIndex = 0;

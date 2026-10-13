@@ -457,12 +457,7 @@ public class FarmingPlugin extends Plugin {
                     clientThread.invoke(this::refreshHighlights);
                   },
                   ids -> kitItems = ids,
-                  list -> {
-                    boolean was = !missing.isEmpty();
-                    missing = list;
-                    // The bank button only shows while preparing: add or remove it as that changes.
-                    if (was != !list.isEmpty()) clientThread.invokeLater(this::updateBankButton);
-                  });
+                  list -> missing = list);
           panel.setOnFinish(this::celebrate);
           panel.setIdleMessage(m -> idleMessage = m);
           panel.setKitOrder(
@@ -478,6 +473,13 @@ public class FarmingPlugin extends Plugin {
                       });
               });
           panel.setKitCounts(counts -> kitCounts = counts);
+          panel.setPreparing(
+              now -> {
+                boolean was = preparing;
+                preparing = now;
+                // The bank button only shows while preparing: add or remove it as that changes.
+                if (was != now) clientThread.invokeLater(this::updateBankButton);
+              });
           navigation =
               NavigationButton.builder()
                   .tooltip("Ultimate Farming")
@@ -1319,9 +1321,11 @@ public class FarmingPlugin extends Plugin {
         });
   }
 
-  /** "Prepare run" pressed and the kit isn't all withdrawn yet: the only time the bank needs us. */
+  /** "Prepare run" pressed and the run not begun yet (no step done): the bank button's time. */
+  private volatile boolean preparing;
+
   private boolean preparingRun() {
-    return !missing.isEmpty();
+    return preparing;
   }
 
   /**
