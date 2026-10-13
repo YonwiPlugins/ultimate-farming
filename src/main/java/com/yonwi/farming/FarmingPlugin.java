@@ -457,7 +457,12 @@ public class FarmingPlugin extends Plugin {
                     clientThread.invoke(this::refreshHighlights);
                   },
                   ids -> kitItems = ids,
-                  list -> missing = list);
+                  list -> {
+                    boolean was = !missing.isEmpty();
+                    missing = list;
+                    // The bank button only shows while preparing: add or remove it as that changes.
+                    if (was != !list.isEmpty()) clientThread.invokeLater(this::updateBankButton);
+                  });
           panel.setOnFinish(this::celebrate);
           panel.setIdleMessage(m -> idleMessage = m);
           panel.setKitOrder(
@@ -1297,21 +1302,46 @@ public class FarmingPlugin extends Plugin {
 
   @Subscribe
   public void onScriptPostFired(ScriptPostFired e) {
-    if (e.getScriptId() == ScriptID.BANKMAIN_BUILD) {
-      addBankButton();
-      styleBankButton();
-    }
+    if (e.getScriptId() == ScriptID.BANKMAIN_BUILD) updateBankButton();
   }
 
   @Subscribe
   public void onWidgetLoaded(WidgetLoaded e) {
     if (e.getGroupId() != InterfaceID.BANKMAIN) return;
-    addBankButton();
     // Work out which spare variants to hide (e.g. a second quetzal whistle) before the bank shows
     // the filter, including when it was left open from last time.
     kitLayout();
-    // Left open from last time: rebuild it from the current kit, as the run may have changed.
-    if (kitFilterOpen()) clientThread.invokeLater(this::refreshKitFilter);
+    clientThread.invokeLater(
+        () -> {
+          updateBankButton();
+          // Left open from last time: rebuild it from the current kit, as the run may have changed.
+          if (preparingRun() && kitFilterOpen()) refreshKitFilter();
+        });
+  }
+
+  /** "Prepare run" pressed and the kit isn't all withdrawn yet: the only time the bank needs us. */
+  private boolean preparingRun() {
+    return !missing.isEmpty();
+  }
+
+  /**
+   * The bank button is only there while preparing a run; otherwise it's removed, along with the
+   * kit filter if it was left showing, so the bank is untouched while you do other things.
+   */
+  private void updateBankButton() {
+    Widget universe = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
+    if (universe == null) return;
+    if (preparingRun()) {
+      addBankButton();
+      if (bankButton != null) bankButton.setHidden(false);
+      if (bankIcon != null) bankIcon.setHidden(false);
+      styleBankButton();
+      return;
+    }
+    if (kitFilterOpen()) bankTags.closeBankTag();
+    if (bankButton != null) bankButton.setHidden(true);
+    if (bankIcon != null) bankIcon.setHidden(true);
+    universe.revalidate();
   }
 
   @Subscribe
