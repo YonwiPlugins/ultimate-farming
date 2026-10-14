@@ -77,6 +77,8 @@ final class FarmingPanel extends PluginPanel {
   private static final class RunRecord {
     String signature, label, date, setup;
     long milliseconds;
+    /** The time was struck off (paused, logged out mid-run…): the run still counts, its time doesn't. */
+    boolean timeVoid;
     int patches, completed, herbs, bark;
     /** Farming XP gained during the run (0 for runs from before it was counted). */
     long xp;
@@ -2061,11 +2063,15 @@ final class FarmingPanel extends PluginPanel {
   private JPanel statsGrid(List<RunRecord> runs, boolean herbs) {
     List<String[]> rows = new ArrayList<>();
     rows.add(new String[] {"Runs", String.valueOf(runs.size())});
-    rows.add(
-        new String[] {
-          "Average time",
-          minutes((long) runs.stream().mapToLong(r -> r.milliseconds).average().orElse(0))
-        });
+    // Struck-off times are left out of everything time-based.
+    List<RunRecord> timed = new ArrayList<>();
+    for (RunRecord r : runs) if (!r.timeVoid) timed.add(r);
+    if (!timed.isEmpty())
+      rows.add(
+          new String[] {
+            "Average time",
+            minutes((long) timed.stream().mapToLong(r -> r.milliseconds).average().orElse(0))
+          });
     if (herbs) {
       List<RunRecord> counted = new ArrayList<>();
       for (RunRecord r : runs) if (r.herbs > 0 && r.completed > 0) counted.add(r);
@@ -2083,10 +2089,16 @@ final class FarmingPanel extends PluginPanel {
     for (RunRecord r : runs) if (r.profit != null) priced.add(r);
     if (!priced.isEmpty()) {
       long total = priced.stream().mapToLong(r -> r.profit).sum();
-      long time = priced.stream().mapToLong(r -> r.milliseconds).sum();
       rows.add(new String[] {"Total profit", gp(total)});
       rows.add(new String[] {"Profit / run", gp(total / priced.size())});
-      if (time > 0) rows.add(new String[] {"GP / hour", gp(total * 3_600_000L / time)});
+      // GP / hour only from runs with a real time.
+      long timedProfit = 0, time = 0;
+      for (RunRecord r : priced)
+        if (!r.timeVoid) {
+          timedProfit += r.profit;
+          time += r.milliseconds;
+        }
+      if (time > 0) rows.add(new String[] {"GP / hour", gp(timedProfit * 3_600_000L / time)});
     }
     return grid(rows);
   }
@@ -2211,9 +2223,10 @@ final class FarmingPanel extends PluginPanel {
     }
     for (Map.Entry<String, List<RunRecord>> group : groups.entrySet()) {
       List<RunRecord> runs = group.getValue();
-      // Most patches first, then fastest.
+      // Most patches first, then fastest; runs with a struck-off time go to the bottom.
       runs.sort(
-          Comparator.comparingInt((RunRecord r) -> -r.completed)
+          Comparator.comparing((RunRecord r) -> r.timeVoid)
+              .thenComparingInt(r -> -r.completed)
               .thenComparingLong(r -> r.milliseconds));
       String type = group.getKey();
       // The run you just finished: open its table, and show more rows if it's below the top N.
@@ -2256,7 +2269,8 @@ final class FarmingPanel extends PluginPanel {
           total.setBorder(new EmptyBorder(0, 14, 0, 0));
           line.add(total);
         }
-        line.setToolTipText("Best: " + best.completed + " patches in " + minutes(best.milliseconds));
+        if (!best.timeVoid)
+          line.setToolTipText("Best: " + best.completed + " patches in " + minutes(best.milliseconds));
         card.add(line);
       } else {
         card.add(recordsTable(type, runs, herbs, editing));
@@ -2350,7 +2364,7 @@ final class FarmingPanel extends PluginPanel {
       buttons.add(
           iconButton(
               editing ? "✓" : "✎",
-              editing ? "Done editing" : "Edit: delete runs",
+              editing ? "Done editing" : "Edit: remove times or delete runs",
               editing ? Style.GOLD : MUTED,
               () -> {
                 if (!editingTables.remove(type)) editingTables.add(type);
@@ -2444,15 +2458,33 @@ final class FarmingPanel extends PluginPanel {
       Color ink = latest ? LATEST : MUTED;
       if (herbs) row.add(cell(String.valueOf(r.herbs), ink, false));
       row.add(cell(String.valueOf(r.completed), ink, false));
-      row.add(cell(minutes(r.milliseconds), ink, false));
+      JLabel time = cell(r.timeVoid ? "–" : minutes(r.milliseconds), ink, false);
+      if (r.timeVoid) time.setToolTipText("Time removed (" + minutes(r.milliseconds) + " recorded)");
+      row.add(time);
       if (editing) {
+        // Strike off the time (or bring it back), or delete the whole run.
+        JButton clock =
+            iconButton(
+                "",
+                r.timeVoid ? "Restore this run's time" : "Remove this run's time (keeps herbs and profit)",
+                MUTED,
+                () -> {
+                  r.timeVoid = !r.timeVoid;
+                  config.setConfiguration(GROUP, "records", gson.toJson(records));
+                  renderBests();
+                });
+        clock.setIcon(r.timeVoid ? Icons.get("time") : Icons.get("noTime"));
         JButton delete = iconButton("✕", "Delete this run", new Color(230, 80, 70), () -> {
           records.remove(r);
           if (latestRecord == r) latestRecord = null;
           config.setConfiguration(GROUP, "records", gson.toJson(records));
           renderBests();
         });
-        row.add(delete);
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 0));
+        actions.setOpaque(false);
+        actions.add(clock);
+        actions.add(delete);
+        row.add(actions);
       } else
       {
         JLabel profit =

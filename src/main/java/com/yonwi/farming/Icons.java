@@ -144,6 +144,15 @@ final class Icons {
         flag.lineTo(3.5, 8.5);
         g.draw(flag);
         break;
+      case "noTime": // a clock struck through: the run's time doesn't count
+        g.setColor(INK);
+        g.draw(new Ellipse2D.Double(1.5, 1.5, 13, 13));
+        g.draw(new Line2D.Double(8, 8, 8, 4));
+        g.draw(new Line2D.Double(8, 8, 11, 9.5));
+        g.setColor(new Color(230, 80, 70));
+        g.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.draw(new Line2D.Double(2.5, 13.5, 13.5, 2.5));
+        break;
       case "trash":
         g.setColor(INK);
         g.draw(new Line2D.Double(2.5, 4, 13.5, 4));
