@@ -754,24 +754,42 @@ public class FarmingPlugin extends Plugin {
     if (step.phase.equals("Travel")) {
       // A jump of many tiles in one tick is a teleport, so the teleport item is used up. Landing
       // in the house (an instance) doesn't count: the house portal is still to come.
+      boolean inHouse = client.getTopLevelWorldView().isInstance();
+      boolean wasInHouse = lastInHouse;
+      lastInHouse = inHouse;
+      // Arriving in the house uses up the teleport that got you there: the next jump to count
+      // has to come from the nexus, ring, box or portal inside.
+      if (inHouse && !wasInHouse) {
+        stepTransportAt = -100;
+        leftHousePatch = null; // back inside
+      }
       boolean teleported =
           before != null
               && (before.getPlane() != here.getPlane() || before.distanceTo(here) > 30)
-              && !client.getTopLevelWorldView().isInstance();
+              && !inHouse;
+      // Only a jump right after using this step's own transport counts (its item or spell, a
+      // destination you chose, the nexus, ring, tree, box or a destination portal). Walking out
+      // of the house's exit portal, or a teleport somewhere else, leaves the step as it was.
+      boolean fromStep = client.getTickCount() - stepTransportAt <= 20;
+      if (teleported && !fromStep && wasInHouse) leftHousePatch = step.patchId;
       // A second leg after the teleport (guide, boat, quetzal...) means only arriving counts.
       if (!step.patchId.equals(jumpPatch)) {
         jumpPatch = step.patchId;
         jumped = false;
         teleportedThisLeg = false;
       }
-      if (teleported) teleportedThisLeg = true;
+      if (teleported && fromStep) {
+        teleportedThisLeg = true;
+        leftHousePatch = null;
+      }
       // After the teleport out (e.g. through the fairy ring), the ring or tree is no longer the
       // thing to click: the route to the patch is. Only a jump right after using a fairy ring,
       // spirit tree, portal or box counts: popping out to the bank and back mustn't lose the
       // house route.
-      if (teleported && usedTransport) jumped = true;
+      if (teleported && fromStep && usedTransport) jumped = true;
       if (teleported) usedTransport = false;
-      if (teleported && !multiLeg(step.travel) || arrived(step.patchId, player)) phaseDone(step);
+      if (teleported && fromStep && !multiLeg(step.travel) || arrived(step.patchId, player))
+        phaseDone(step);
       return;
     }
     if (step.phase.startsWith("Note")) {
@@ -1191,7 +1209,9 @@ public class FarmingPlugin extends Plugin {
    */
   boolean travelItemDone() {
     Guidance step = guidance;
-    return step != null && step.patchId.equals(jumpPatch) && teleportedThisLeg || teleportClicked();
+    return step != null && step.patchId.equals(jumpPatch) && teleportedThisLeg
+        || teleportClicked()
+        || outsidePortalShown;
   }
 
   /** A teleport for the current Travel step was clicked in the last few ticks. */
@@ -1204,6 +1224,18 @@ public class FarmingPlugin extends Plugin {
 
   /** Whether you've just used a fairy ring, spirit tree, portal or box. */
   private boolean usedTransport;
+
+  /** Tick this step's transport was last used (item, spell, destination, nexus, ring…). */
+  private int stepTransportAt = -100;
+
+  /** Whether you were in the house last tick. */
+  private boolean lastInHouse;
+
+  /** The patch whose trip you walked out of the house on (exit portal), so its outside portal leads back in. */
+  private volatile String leftHousePatch;
+
+  /** The outside house portal is what to click (you walked out mid-trip). */
+  private volatile boolean outsidePortalShown;
 
   /** "cape", "altar", "house" (go home first) or "bank" (withdraw the cape), or null. */
   String switchRoute() {
@@ -2141,6 +2173,15 @@ public class FarmingPlugin extends Plugin {
       }
       return guide;
     }
+    // Walked out of the house mid-trip: its outside portal (within 10 tiles) leads back in.
+    outsidePortalShown = false;
+    if (!house && step.patchId.equals(leftHousePatch) && !jumped) {
+      TileObject portal = nearestObject(player, 10, "portal");
+      if (portal != null) {
+        outsidePortalShown = true;
+        return portal;
+      }
+    }
     if (jumped && !travel.contains("elkoy")) return null;
     // Tree Gnome Village: squeeze through the loose railing, then follow Elkoy through the maze.
     if (travel.contains("elkoy") && !house) {
@@ -2209,8 +2250,13 @@ public class FarmingPlugin extends Plugin {
     // (Not the house's plain exit "Portal".)
     if (target.contains("fairy") || target.contains("spirit tree")
         || target.contains("portal") && !target.equals("portal")
-        || target.contains("jewellery box") || target.contains("nexus"))
+        || target.contains("jewellery box") || target.contains("nexus")) {
       usedTransport = true;
+      stepTransportAt = client.getTickCount();
+    }
+    // A choice in a chat dialogue while travelling, e.g. a ring of wealth's "Falador Park".
+    if (step.phase.equals("Travel") && e.getMenuAction() == MenuAction.WIDGET_CONTINUE)
+      stepTransportAt = client.getTickCount();
     // A teleport on this step's item (or a teleport spell) was clicked: it's under way.
     if (step.phase.equals("Travel") && !TELEPORT_NOT.contains(option)) {
       boolean ours = option.equals("cast") && target.contains("teleport");
@@ -2221,6 +2267,7 @@ public class FarmingPlugin extends Plugin {
       if (ours) {
         teleportClickedAt = client.getTickCount();
         teleportClickedPatch = step.patchId;
+        stepTransportAt = client.getTickCount();
       }
     }
     // An item used on the patch or an NPC (seed, sapling, compost, herbs on the leprechaun).
