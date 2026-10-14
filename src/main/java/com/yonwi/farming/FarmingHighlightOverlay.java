@@ -39,7 +39,9 @@ final class FarmingHighlightOverlay extends Overlay {
     if (!config.highlight() || step == null || client.getGameState() != GameState.LOGGED_IN)
       return null;
     drawPath(g);
-    for (TileObject object : plugin.nextObjects()) draw(g, object, FarmingInventoryOverlay.NEXT);
+    // A patch made of several tiles (the Farming Guild redwood) is one square round all of it.
+    int[] area = TargetData.PATCH_AREAS.get(step.patchId);
+    drawAll(g, plugin.nextObjects(), area, FarmingInventoryOverlay.NEXT);
     for (NPC npc : plugin.nextNpcs())
       FarmingInventoryOverlay.mark(g, npc.getConvexHull(), FarmingInventoryOverlay.NEXT);
     // Once the seed or compost is selected, the patch takes the item's colour.
@@ -56,28 +58,55 @@ final class FarmingHighlightOverlay extends Overlay {
         plugin.selectedItem(plugin.itemIds(step))
             ? FarmingInventoryOverlay.ITEM
             : useItem ? FarmingInventoryOverlay.NEXT : FarmingInventoryOverlay.TARGET;
-    for (TileObject object : plugin.highlightObjects()) {
-      draw(g, object, ink);
-      // On the fairy ring itself, show the code to dial.
-      String code = plugin.fairyCode();
-      if (code != null) {
+    drawAll(g, plugin.highlightObjects(), area, ink);
+    // On the fairy ring itself, show the code to dial.
+    String code = plugin.fairyCode();
+    if (code != null)
+      for (TileObject object : plugin.highlightObjects()) {
         net.runelite.api.Point at = object.getCanvasTextLocation(g, code, 160);
         if (at != null) OverlayUtil.renderTextLocation(g, at, code, FarmingInventoryOverlay.ITEM);
       }
-    }
     for (NPC npc : plugin.highlightNpcs())
       FarmingInventoryOverlay.mark(g, npc.getConvexHull(), ink);
-    if (config.debug()) logHighlights(ink);
+    if (config.debug()) logHighlights(ink, area);
     return null;
   }
 
+  /** Objects in one colour; the tiles of a patch made of several as one square round it all. */
+  private void drawAll(Graphics2D g, List<TileObject> objects, int[] area, Color color) {
+    TileObject tile = null;
+    for (TileObject object : objects)
+      if (inArea(object, area)) tile = object;
+      else draw(g, object, color);
+    if (tile == null) return;
+    // The square's centre: the south-west tile's corner plus half the patch's size.
+    WorldView view = client.getTopLevelWorldView();
+    LocalPoint sw = LocalPoint.fromWorld(view, new WorldPoint(area[0], area[1], tile.getPlane()));
+    if (sw == null) return;
+    int sizeX = area[2] - area[0] + 1, sizeY = area[3] - area[1] + 1;
+    LocalPoint centre =
+        new LocalPoint(
+            sw.getX() + (sizeX - 1) * Perspective.LOCAL_HALF_TILE_SIZE,
+            sw.getY() + (sizeY - 1) * Perspective.LOCAL_HALF_TILE_SIZE,
+            view);
+    FarmingInventoryOverlay.mark(
+        g, Perspective.getCanvasTileAreaPoly(client, centre, sizeX, sizeY, tile.getPlane(), 0), color);
+  }
+
+  /** Whether an object stands inside a patch made of several tiles. */
+  private static boolean inArea(TileObject object, int[] area) {
+    if (area == null) return false;
+    WorldPoint at = object.getWorldLocation();
+    return at.getX() >= area[0] && at.getX() <= area[2] && at.getY() >= area[1] && at.getY() <= area[3];
+  }
+
   /** Debug: what's lit in the game world and in which colour, logged when it changes. */
-  private void logHighlights(Color ink) {
+  private void logHighlights(Color ink, int[] area) {
     List<String> parts = new ArrayList<>();
     String now = FarmingInventoryOverlay.colourName(ink), next = FarmingInventoryOverlay.colourName(FarmingInventoryOverlay.NEXT);
-    for (TileObject o : plugin.highlightObjects()) parts.add(now + " " + objectName(o));
+    logObjects(parts, now, plugin.highlightObjects(), area);
     for (NPC n : plugin.highlightNpcs()) parts.add(now + " " + n.getName() + " (" + n.getId() + ")");
-    for (TileObject o : plugin.nextObjects()) parts.add(next + " " + objectName(o));
+    logObjects(parts, next, plugin.nextObjects(), area);
     for (NPC n : plugin.nextNpcs()) parts.add(next + " " + n.getName() + " (" + n.getId() + ")");
     List<WorldPoint> path = plugin.path();
     if (!path.isEmpty()) {
@@ -85,6 +114,17 @@ final class FarmingHighlightOverlay extends Overlay {
       parts.add("path " + path.size() + " tiles to " + end.getX() + "," + end.getY());
     }
     plugin.noteHighlights("world", String.join(" · ", parts));
+  }
+
+  /** Debug: each object, or the tiles of a patch made of several as one square. */
+  private void logObjects(List<String> parts, String colour, List<TileObject> objects, int[] area) {
+    boolean square = false;
+    for (TileObject o : objects)
+      if (inArea(o, area)) square = true;
+      else parts.add(colour + " " + objectName(o));
+    if (square)
+      parts.add(
+          colour + " patch square " + area[0] + "," + area[1] + " to " + area[2] + "," + area[3]);
   }
 
   private String objectName(TileObject o) {
