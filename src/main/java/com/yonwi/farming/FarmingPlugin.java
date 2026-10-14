@@ -1146,6 +1146,29 @@ public class FarmingPlugin extends Plugin {
 
   private String teleportClickedPatch;
 
+  /** A quetzal map, spirit tree list, portal nexus or jewellery box is open. */
+  private boolean destinationMenuShowing() {
+    for (int id :
+        new int[] {
+          InterfaceID.QuetzalwhistleMenu.ICONS, InterfaceID.QuetzalMenu.ICONS,
+          InterfaceID.Menu.LJ_LAYER1, InterfaceID.Menu.LJ_LAYER2,
+          InterfaceID.TelenexusTeleport.UNIVERSE, InterfaceID.PohJewelleryBox.UNIVERSE
+        }) {
+      Widget w = client.getWidget(id);
+      if (w != null && !w.isHidden()) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The travel item for this step has done its job: just clicked, or you've already teleported on
+   * this trip (e.g. landed from the whistle). Either way it's not to be highlighted again.
+   */
+  boolean travelItemDone() {
+    Guidance step = guidance;
+    return step != null && step.patchId.equals(jumpPatch) && teleportedThisLeg || teleportClicked();
+  }
+
   /** A teleport for the current Travel step was clicked in the last few ticks. */
   boolean teleportClicked() {
     Guidance step = guidance;
@@ -2134,6 +2157,8 @@ public class FarmingPlugin extends Plugin {
     // A teleport on this step's item (or a teleport spell) was clicked: it's under way.
     if (step.phase.equals("Travel") && !TELEPORT_NOT.contains(option)) {
       boolean ours = option.equals("cast") && target.contains("teleport");
+      // Choosing where to go on a quetzal map, spirit tree list, portal nexus or jewellery box.
+      ours |= destinationMenuShowing();
       for (String item : step.items)
         ours |= target.startsWith(menuName(FarmingPlanner.normalize(item)));
       if (ours) {

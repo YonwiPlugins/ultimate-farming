@@ -168,7 +168,7 @@ final class FarmingInventoryOverlay extends Overlay {
       return null;
     }
     // The teleport has just been clicked: it's happening, so stop pointing at the item.
-    if (step.phase.equals("Travel") && plugin.teleportClicked()) return null;
+    if (step.phase.equals("Travel") && plugin.travelItemDone()) return null;
     // Inside the house (an instance) the teleport item is spent; the house portal comes next.
     if (step.phase.equals("Travel") && client.getTopLevelWorldView().isInstance()) return null;
     // A fairy ring staff comes first: equip it, then it stops being highlighted for good.
