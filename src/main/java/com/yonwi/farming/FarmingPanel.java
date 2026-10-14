@@ -1458,12 +1458,39 @@ final class FarmingPanel extends PluginPanel {
     return total;
   }
 
-  /** Whether the Bring section still fits in 28 inventory slots with this run type added. */
+  /**
+   * Free slots a harvest needs: the biggest single patch's produce (6 fruit or Calquat, the
+   * expected Celastrus bark or herbs), as it's noted at the leprechaun before the next patch.
+   * Nothing when nothing is harvested.
+   */
+  private static int harvestSquares(List<FarmingPlanner.Step> plan, Settings s) {
+    boolean cape = FarmingPlanner.farmingCapeWorn(plan, s);
+    int most = 0;
+    for (FarmingPlanner.Step step : plan) {
+      String kind = step.patch.kind;
+      if (!s.harvests(kind)) continue;
+      int produce =
+          kind.equals("herb")
+              ? (int) Math.ceil(FarmingPlanner.expectedHerbs(step.patch, s, cape))
+              : kind.equals("celastrus")
+                  ? (int) Math.round(FarmingPlanner.bark(s))
+                  : s.crop(kind).fruit.isEmpty() ? 0 : 6;
+      most = Math.max(most, produce);
+    }
+    return most;
+  }
+
+  /** Inventory space the run needs: the Bring section plus room for a patch's harvest. */
+  private static int spaceNeeded(List<FarmingPlanner.Step> plan, FarmingPlanner.Kit kit, Settings s) {
+    return bringSquares(kit, s) + harvestSquares(plan, s);
+  }
+
+  /** Whether the run still fits in 28 inventory slots with this run type added. */
   private boolean fitsWith(String kind) {
     Settings copy = gson.fromJson(gson.toJson(settings), Settings.class);
     copy.kinds.add(kind);
     List<FarmingPlanner.Step> plan = FarmingPlanner.plan(copy);
-    return bringSquares(FarmingPlanner.kit(plan, copy), copy) <= 28;
+    return spaceNeeded(plan, FarmingPlanner.kit(plan, copy), copy) <= 28;
   }
 
   /** The Run tab's patch list is shown (it starts collapsed each session). */
@@ -1550,7 +1577,7 @@ final class FarmingPanel extends PluginPanel {
         }
         addCard(page, card);
       }
-      int slots = kit == null ? 0 : bringSquares(kit, settings);
+      int slots = kit == null ? 0 : spaceNeeded(route, kit, settings);
       if (slots > 28) {
         JLabel over =
             muted("Too many items needed to fit in your inventory");
