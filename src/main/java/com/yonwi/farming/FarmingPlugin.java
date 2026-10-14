@@ -1856,9 +1856,22 @@ public class FarmingPlugin extends Plugin {
     if (client.getTopLevelWorldView().isInstance()) {
       shortestPath(null);
       if (objectHighlights.isEmpty()) return Collections.emptyList();
-      WorldPoint target = objectHighlights.get(0).getWorldLocation();
-      if (target.distanceTo(from) <= 1) return Collections.emptyList();
-      return TilePath.find(client.getTopLevelWorldView(), from, target);
+      TileObject object = objectHighlights.get(0);
+      WorldPoint target = object.getWorldLocation();
+      int w = 1, h = 1;
+      // Its whole footprint (south-west corner and size), so the line stops at the nearest side.
+      if (object instanceof GameObject) {
+        GameObject big = (GameObject) object;
+        w = big.sizeX();
+        h = big.sizeY();
+        net.runelite.api.Point corner = big.getSceneMinLocation();
+        if (corner != null)
+          target =
+              WorldPoint.fromScene(
+                  client.getTopLevelWorldView(), corner.getX(), corner.getY(), big.getPlane());
+      }
+      if (besideArea(from, target, w, h)) return Collections.emptyList();
+      return TilePath.find(client.getTopLevelWorldView(), from, target, w, h);
     }
     // Noting herbs: the leprechaun is the destination, not the patch.
     boolean noting = noteAdvice != null || step.phase.startsWith("Note");

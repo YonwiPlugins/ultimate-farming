@@ -19,6 +19,14 @@ final class TilePath {
   private TilePath() {}
 
   static List<WorldPoint> find(WorldView view, WorldPoint from, WorldPoint to) {
+    return find(view, from, to, 1, 1);
+  }
+
+  /**
+   * Route to the nearest tile beside a {@code w} × {@code h} object whose south-west corner is
+   * {@code to} (a portal nexus or fairy ring is bigger than one tile): beside any of its sides.
+   */
+  static List<WorldPoint> find(WorldView view, WorldPoint from, WorldPoint to, int w, int h) {
     if (view == null || from == null || to == null || from.getPlane() != to.getPlane())
       return Collections.emptyList();
     CollisionData[] maps = view.getCollisionMaps();
@@ -38,8 +46,11 @@ final class TilePath {
     int bestX = sx, bestY = sy, bestDistance = Integer.MAX_VALUE;
     while (!queue.isEmpty()) {
       int[] at = queue.poll();
-      // Manhattan distance: 1 means beside a side (patches can't be used from a corner).
-      int d = Math.abs(at[0] - tx) + Math.abs(at[1] - ty);
+      // Distance to the object's footprint: 1 means beside a side (not a corner: objects can't be
+      // used diagonally).
+      int dx = Math.max(0, Math.max(tx - at[0], at[0] - (tx + Math.max(1, w) - 1)));
+      int dy = Math.max(0, Math.max(ty - at[1], at[1] - (ty + Math.max(1, h) - 1)));
+      int d = dx + dy;
       if (d < bestDistance) {
         bestDistance = d;
         bestX = at[0];
