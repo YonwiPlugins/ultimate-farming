@@ -24,6 +24,15 @@ public interface FarmingConfig extends Config {
   }
 
   @ConfigItem(
+      keyName = "timerOverlay",
+      name = "Run timer overlay",
+      description = "Show the run timer on the game screen while a run is timed",
+      position = 2)
+  default boolean timerOverlay() {
+    return false;
+  }
+
+  @ConfigItem(
       keyName = "recordsShown",
       name = "Records rows shown",
       description = "Runs listed per Records table before \"Show more\"",

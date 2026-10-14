@@ -225,6 +225,7 @@ public class FarmingPlugin extends Plugin {
   @Inject private FarmingInventoryOverlay inventoryOverlay;
   @Inject private FarmingDebugOverlay debugOverlay;
   @Inject private FarmingAlertOverlay alertOverlay;
+  @Inject private FarmingTimerOverlay timerOverlay;
   @Inject private FarmingConfig config;
   @Inject private net.runelite.client.eventbus.EventBus eventBus;
   @Inject private net.runelite.client.plugins.PluginManager pluginManager;
@@ -436,6 +437,7 @@ public class FarmingPlugin extends Plugin {
     overlays.add(inventoryOverlay);
     overlays.add(debugOverlay);
     overlays.add(alertOverlay);
+    overlays.add(timerOverlay);
     tagManager.registerTag(
         BANK_TAG,
         id ->
@@ -460,6 +462,7 @@ public class FarmingPlugin extends Plugin {
                   list -> missing = list);
           panel.setOnFinish(this::celebrate);
           panel.setIdleMessage(m -> idleMessage = m);
+          panel.setTimeListener(t -> runTime = t);
           panel.setKitOrder(
               names -> {
                 boolean changed = !names.equals(kitOrder);
@@ -600,6 +603,7 @@ public class FarmingPlugin extends Plugin {
     overlays.remove(inventoryOverlay);
     overlays.remove(debugOverlay);
     overlays.remove(alertOverlay);
+    overlays.remove(timerOverlay);
     clientThread.invoke(
         () -> {
           sceneObjects.clear();
@@ -1744,6 +1748,13 @@ public class FarmingPlugin extends Plugin {
   }
 
   private volatile String idleMessage;
+
+  /** The run timer's text while a run is timed, else null (for the optional timer overlay). */
+  private volatile String runTime;
+
+  String runTime() {
+    return runTime;
+  }
 
   /** Between runs: when the plants will be ready, or that they are. */
   String idleMessage() {

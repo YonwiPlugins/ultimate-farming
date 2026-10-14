@@ -176,7 +176,8 @@ final class FarmingPanel extends PluginPanel {
     add(body, BorderLayout.CENTER);
     JPanel bottom = column();
     clock.setForeground(INK);
-    clock.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 19));
+    // The RuneScape bold font, like the rest of the sidebar.
+    clock.setFont(Style.bold().deriveFont(22f));
     JPanel timeRow = new JPanel(new BorderLayout(6, 0));
     timeRow.setOpaque(false);
     timeRow.add(clock, BorderLayout.WEST);
@@ -2083,6 +2084,13 @@ final class FarmingPanel extends PluginPanel {
 
   private Consumer<String> idleChanged = m -> {};
 
+  private Consumer<String> timeChanged = t -> {};
+
+  /** Receives the run timer's text ("05:32"), or null when no run is being timed. */
+  void setTimeListener(Consumer<String> timeChanged) {
+    this.timeChanged = timeChanged;
+  }
+
   /** Receives the between-runs overlay line, e.g. when the plants will be ready. */
   void setIdleMessage(Consumer<String> idleChanged) {
     this.idleChanged = idleChanged;
@@ -2246,6 +2254,7 @@ final class FarmingPanel extends PluginPanel {
 
   private void updateTimer() {
     clock.setText(time(duration()));
+    timeChanged.accept(session == null ? null : time(duration()));
     // Keep the between-runs overlay line current, e.g. once the plants are grown.
     idleChanged.accept(idleMessage());
     start.setEnabled(!running && !route.isEmpty());
