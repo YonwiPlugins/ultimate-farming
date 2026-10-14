@@ -358,11 +358,21 @@ public class FarmingPlugin extends Plugin {
 
   /** Item IDs (all charge and tier variants) used by the guided action. */
   Set<Integer> itemIds(Guidance step) {
-    // Clearing a tree yourself: chop it while it stands (axe used from the inventory, nothing to
-    // highlight), then the spade on the stump or bare tree.
-    if (step.phase.equals("Clear") && selfClear(step) && !patchChoppable && patchObject != null)
-      return itemIds(Collections.singletonList("Spade"));
+    // Clearing a tree yourself: nothing to highlight in the inventory. Chop it down (the axe is
+    // used from the inventory), then Clear on the stump or bare tree uses the spade by itself.
+    if (step.phase.equals("Clear")) return Collections.emptySet();
+    // Dead herbs: nothing to pick, so no secateurs; just Clear (or Resurrect Crops) on the patch.
+    if (step.phase.equals("Harvest") && deadPatch) return Collections.emptySet();
     return usableIds(step.items);
+  }
+
+  /** The unnoted produce to note at the leprechaun on this step: grimy herbs, fruit or bark. */
+  Set<Integer> noteItems() {
+    Guidance step = guidance;
+    if (step == null || step.kind.equals("herb")) return GRIMY;
+    return step.produce.isEmpty()
+        ? Collections.emptySet()
+        : itemIds(Collections.singletonList(step.produce));
   }
 
   /** Whether you clear this patch yourself (no gardener removal), e.g. Celastrus and Calquat. */
@@ -1942,14 +1952,17 @@ public class FarmingPlugin extends Plugin {
   private String noteAdvice(Guidance step, Player player, TileObject patch, NPC leprechaun) {
     ItemContainer inventory = client.getItemContainer(InventoryID.INV);
     if (inventory == null) return null;
+    // Herbs, fruit, Calquat or Celastrus bark picked here and not yet noted.
+    Set<Integer> produce = noteItems();
     int used = 0, grimy = 0;
     for (Item item : inventory.getItems())
       if (item.getId() > 0) {
         used++;
-        if (GRIMY.contains(item.getId())) grimy++;
+        if (produce.contains(item.getId())) grimy++;
       }
     int free = 28 - used;
-    if (grimy == 0 || !step.kind.equals("herb")) return null;
+    if (grimy == 0) return null;
+    boolean herbs = step.kind.equals("herb");
     boolean started = step.patchId.equals(pickingPatch);
     // On the way in, when this patch's herbs won't fit and the leprechaun comes before the patch
     // (e.g. Falador): note as you pass him. Once advised it stays until you've noted or started
@@ -1957,7 +1970,8 @@ public class FarmingPlugin extends Plugin {
     WorldPoint at = TargetData.PATCH_POINTS.get(step.patchId);
     WorldPoint here = player.getWorldLocation();
     boolean approaching =
-        (step.phase.equals("Travel") || step.phase.equals("Harvest"))
+        herbs
+            && (step.phase.equals("Travel") || step.phase.equals("Harvest"))
             && !started
             && free < step.herbsPerPatch
             && at != null
@@ -1982,10 +1996,17 @@ public class FarmingPlugin extends Plugin {
       if (c != null && c.getImpostorIds() != null) c = c.getImpostor();
       if (c != null)
         for (String a : c.getActions())
-          stillToPick |= a != null && a.toLowerCase(Locale.ROOT).startsWith("pick");
+          stillToPick |=
+              a != null
+                  && (a.toLowerCase(Locale.ROOT).startsWith("pick")
+                      || a.toLowerCase(Locale.ROOT).startsWith("harvest"));
     }
+    // Full with more still to harvest (any crop): note at this patch's leprechaun, then finish.
     if (harvesting && stillToPick && free == 0)
-      return "Inventory full: note your herbs at this leprechaun, then finish picking";
+      return "Inventory full: note your "
+          + (herbs ? "herbs" : step.produce.toLowerCase(Locale.ROOT))
+          + " at this leprechaun, then finish "
+          + (step.kind.equals("celastrus") ? "harvesting" : "picking");
     return null;
   }
 

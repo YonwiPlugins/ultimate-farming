@@ -152,7 +152,7 @@ final class FarmingInventoryOverlay extends Overlay {
     // Noting advised: the unnoted grimy herbs are what to use on the leprechaun.
     if (plugin.noteAdvice() != null) {
       if (open != INVENTORY_TAB) mark(g, stone(0));
-      else markInventory(g, FarmingPlugin.grimyHerbs(), ITEM, true);
+      else markInventory(g, plugin.noteItems(), ITEM, true);
       return null;
     }
     // Once the seed or compost is selected, only the patch is left to click.
