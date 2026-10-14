@@ -201,8 +201,11 @@ final class FarmingInventoryOverlay extends Overlay {
     // Noting comes first: don't show what's after it yet (e.g. the next teleport).
     // (The next patch's teleport stays orange, so it's ready once you've noted.)
     if (plugin.noteAdvice() != null && !nextIsTeleport) next.clear();
+    // Picking herbs that will likely fill the inventory: the unnoted herbs are next, not the seed.
+    boolean noteSoon = plugin.noteSoon();
+    if (noteSoon) next = new HashSet<>(plugin.noteItems());
     if (open == INVENTORY_TAB && !next.isEmpty())
-      markInventory(g, next, NEXT, !nextIsTeleport && step.nextPhase.startsWith("Note"));
+      markInventory(g, next, NEXT, noteSoon || !nextIsTeleport && step.nextPhase.startsWith("Note"));
     // The next teleport is worn (e.g. a ring or cape): show its tab in orange, or the item itself
     // when that tab is open.
     if (nextIsTeleport && !next.isEmpty() && !contains(InventoryID.INV, next) && contains(InventoryID.WORN, next)) {

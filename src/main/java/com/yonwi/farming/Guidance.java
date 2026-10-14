@@ -20,6 +20,10 @@ final class Guidance {
   final List<String> nextItems;
   /** Expected herbs from one patch, to judge whether the inventory has room for the next. */
   int herbsPerPatch = 8;
+  /** Expected herbs here if the patch is alive, for judging whether they'll fit. */
+  int herbsIfAlive = 8;
+  /** The stage before this one (its patch and kind), or null for the first. */
+  String prevPatchId, prevKind;
   /** The next patch's teleport item(s), shown in orange during this patch's last step. */
   List<String> nextTravelItems = Collections.emptyList();
   /** The crop growing here, e.g. "Magic", to recognise its tree. */

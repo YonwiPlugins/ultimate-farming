@@ -1225,15 +1225,26 @@ public class FarmingPlugin extends Plugin {
     Widget contents = client.getWidget(InterfaceID.FairyringsLog.CONTENTS);
     if (code == null || contents == null || contents.isHidden()) return;
     Widget entry = null;
+    List<String> seen = new ArrayList<>();
     Widget faves = client.getWidget(InterfaceID.FairyringsLog.FAVES);
     if (faves != null && faves.getStaticChildren() != null)
       for (Widget w : faves.getStaticChildren())
-        if (w != null && code.equals(Text.removeTags(String.valueOf(w.getText())))) entry = w;
+        if (w != null && w.getText() != null && !w.getText().isEmpty()) {
+          seen.add(w.getText());
+          if (entry == null && logEntryIs(w, code)) entry = w;
+        }
     if (entry == null && contents.getDynamicChildren() != null)
       for (Widget w : contents.getDynamicChildren())
-        if (w != null && code.equals(Text.removeTags(String.valueOf(w.getText())))) entry = w;
+        if (w != null && w.getText() != null && !w.getText().isEmpty()) {
+          seen.add(w.getText());
+          if (entry == null && logEntryIs(w, code)) entry = w;
+        }
+    String report = "fairy log: " + code + (entry == null ? " not found in " : " found in ") + seen;
+    if (debugSeen.add(report)) debugLog(report);
     if (entry == null) return;
     entry.setTextColor(0x00FF00);
+    String text = String.valueOf(entry.getText());
+    if (!text.contains(LOG_TAG)) entry.setText(LOG_TAG + text);
     int scrollY = Math.min(entry.getRelativeY(), contents.getScrollHeight() - contents.getHeight());
     if (scrollY < 0 || contents.getScrollY() == scrollY) return;
     contents.setScrollY(scrollY);
@@ -1243,6 +1254,16 @@ public class FarmingPlugin extends Plugin {
         InterfaceID.FairyringsLog.SCROLLBAR,
         InterfaceID.FairyringsLog.CONTENTS,
         scrollY);
+  }
+
+  private static final String LOG_TAG = "(Ultimate Farming) ";
+
+  /** A travel log entry for this code: it starts with the code, however it's spaced or tagged. */
+  private static boolean logEntryIs(Widget w, String code) {
+    String flat =
+        Text.removeTags(String.valueOf(w.getText())).replace(LOG_TAG.trim(), "").replaceAll("\\s", "")
+            .toUpperCase(Locale.ROOT);
+    return flat.startsWith(code);
   }
 
   /** Item options that aren't a teleport. */
@@ -1314,6 +1335,7 @@ public class FarmingPlugin extends Plugin {
 
   private void phaseDone(Guidance step) {
     event("step done: " + step.phase);
+    if (!step.phase.equals("Travel")) workedPatch = step.patchId;
     SwingUtilities.invokeLater(
         () -> {
           if (active && panel != null) panel.phaseDone(step.patchId, step.phase);
@@ -1663,7 +1685,12 @@ public class FarmingPlugin extends Plugin {
     if (nearby.isEmpty()) return;
     // Picking has started here: from now on, noting is only suggested if the inventory fills.
     Guidance step = guidance;
-    if (step != null && nearby.contains(step.patchId)) pickingPatch = step.patchId;
+    if (step != null && nearby.contains(step.patchId)) {
+      if (!step.patchId.equals(pickingPatch)) pickedHere = 0;
+      pickingPatch = step.patchId;
+      workedPatch = step.patchId;
+      pickedHere += picked;
+    }
     SwingUtilities.invokeLater(
         () -> {
           if (active && panel != null) panel.herbPicked(nearby, picked);
@@ -1949,7 +1976,12 @@ public class FarmingPlugin extends Plugin {
     if (next != current && next instanceof TileObject)
       nextObjects = Collections.singletonList((TileObject) next);
     if (next != current && next instanceof NPC) nextNpcs = Collections.singletonList((NPC) next);
+    noteSoon = false;
     noteAdvice = noteAdvice(step, player, patch, leprechaun);
+    if (noteAdvice == null && noteSoon && leprechaun != null) {
+      nextNpcs = Collections.singletonList(leprechaun);
+      nextObjects = Collections.emptyList();
+    }
     // When noting is advised, the leprechaun is what to click.
     if (noteAdvice != null && leprechaun != null) {
       // Noting comes first: just the leprechaun (herbs, then him), nothing else lit up.
@@ -2012,6 +2044,14 @@ public class FarmingPlugin extends Plugin {
     }
     // Noting herbs: the leprechaun is the destination, not the patch.
     boolean noting = noteAdvice != null || step.phase.startsWith("Note");
+    // At a patch you've started on, or noting: no line (the highlights say what to click). The
+    // line to the patch comes back while you're outside its area.
+    boolean here = !step.phase.equals("Travel") && inPatchArea(step.patchId, from);
+    if (noteAdvice != null
+        || here && (noting || step.patchId.equals(workedPatch) || step.patchId.equals(pickingPatch))) {
+      shortestPath(null);
+      return Collections.emptyList();
+    }
     WorldPoint to = null;
     if (!npcHighlights.isEmpty()) to = npcHighlights.get(0).getWorldLocation();
     else if (!objectHighlights.isEmpty()) to = objectHighlights.get(0).getWorldLocation();
@@ -2204,6 +2244,18 @@ public class FarmingPlugin extends Plugin {
     int free = 28 - used;
     if (grimy == 0) return null;
     boolean herbs = step.kind.equals("herb");
+    WorldPoint now = player.getWorldLocation();
+    // Leaving a herb patch for another: if the next one's herbs won't fit with 2 to spare, note
+    // at this patch's leprechaun first (e.g. Catherby before Troll Stronghold).
+    if (herbs
+        && step.phase.equals("Travel")
+        && "herb".equals(step.prevKind)
+        && leprechaun != null
+        && !client.getTopLevelWorldView().isInstance()
+        && inPatchArea(step.prevPatchId, now)
+        && free < step.herbsIfAlive + 2)
+      return "Note your herbs here: " + free + " free slots, the next patch gives about "
+          + step.herbsIfAlive;
     boolean started = step.patchId.equals(pickingPatch);
     // On the way in, when this patch's herbs won't fit and the leprechaun comes before the patch
     // (e.g. Falador): note as you pass him. Once advised it stays until you've noted or started
@@ -2242,6 +2294,10 @@ public class FarmingPlugin extends Plugin {
                   && (a.toLowerCase(Locale.ROOT).startsWith("pick")
                       || a.toLowerCase(Locale.ROOT).startsWith("harvest"));
     }
+    // Herbs likely to fill the inventory before the patch is done: the herbs and the leprechaun
+    // are next (orange), so noting is ready before it's full.
+    int left = Math.max(1, step.herbsIfAlive - (step.patchId.equals(pickingPatch) ? pickedHere : 0));
+    noteSoon = herbs && harvesting && stillToPick && free > 0 && free < left;
     // Full with more still to harvest (any crop): note at this patch's leprechaun, then finish.
     if (harvesting && stillToPick && free == 0)
       return "Inventory full: note your "
@@ -2249,6 +2305,19 @@ public class FarmingPlugin extends Plugin {
           + " at this leprechaun, then finish "
           + (step.kind.equals("celastrus") ? "harvesting" : "picking");
     return null;
+  }
+
+  /** Herbs picked at {@link #pickingPatch} so far. */
+  private int pickedHere;
+
+  /** The patch you've done something at on this stage (picked, raked, planted…), so no path. */
+  private volatile String workedPatch;
+
+  /** Picking herbs that will likely fill the inventory: herbs and leprechaun are next. */
+  private volatile boolean noteSoon;
+
+  boolean noteSoon() {
+    return noteSoon;
   }
 
   /** The herb patch you've started picking at (set by the first herb picked there). */
@@ -2357,6 +2426,8 @@ public class FarmingPlugin extends Plugin {
   private static List<String> routeObjects(String route, boolean house) {
     String travel = route.toLowerCase(Locale.ROOT);
     List<String> names = new ArrayList<>();
+    // A route through the house uses the house's own ring or tree: nothing outside it.
+    if (!house && (travel.startsWith("house ") || travel.startsWith("poh "))) return names;
     if (travel.contains("fairy ring")) names.addAll(Arrays.asList("fairy ring", "spiritual fairy tree"));
     if (travel.contains("spirit tree")) names.addAll(Arrays.asList("spirit tree", "spiritual fairy tree"));
     // In the house: the jewellery box or the portal (nexus) the route uses.
@@ -2532,6 +2603,10 @@ public class FarmingPlugin extends Plugin {
             + "' action " + e.getMenuAction() + " id " + e.getId() + " param0 " + e.getParam0()
             + " param1 " + e.getParam1() + " (group " + (e.getParam1() >>> 16) + " child "
             + (e.getParam1() & 0xFFFF) + ") item " + e.getItemId());
+    // Anything done to the guided patch (pick, rake, use an item on it…): no more line to it.
+    TileObject worked = patchObject;
+    Guidance working = guidance;
+    if (worked != null && working != null && e.getId() == worked.getId()) workedPatch = working.patchId;
     String option = Text.removeTags(e.getMenuOption()).toLowerCase(Locale.ROOT);
     String target = Text.removeTags(e.getMenuTarget()).toLowerCase(Locale.ROOT);
     // The magic cape's Spellbook option: a change of spellbook soon after counts as one of the

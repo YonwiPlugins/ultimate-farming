@@ -2031,6 +2031,16 @@ final class FarmingPanel extends PluginPanel {
                 FarmingPlanner.expectedHerbs(
                     step.patch, settings, FarmingPlanner.farmingCapeWorn(route, settings)));
     if (guide.herbsPerPatch <= 0) guide.herbsPerPatch = 8;
+    guide.herbsIfAlive =
+        (int)
+            Math.ceil(
+                FarmingPlanner.expectedHerbsIfAlive(
+                    step.patch, settings, FarmingPlanner.farmingCapeWorn(route, settings)));
+    if (guide.herbsIfAlive <= 0) guide.herbsIfAlive = 8;
+    if (guideIndex > 0) {
+      guide.prevPatchId = route.get(guideIndex - 1).patch.id;
+      guide.prevKind = route.get(guideIndex - 1).patch.kind;
+    }
     guide.resurrect = settings.resurrects(route);
     for (int n = guideIndex + 1; n < route.size(); n++)
       if (!settings.completed.contains(route.get(n).patch.id)) {

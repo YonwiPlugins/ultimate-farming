@@ -879,6 +879,12 @@ final class FarmingPlanner {
     return yield * herbSurvival(p, s, resurrect);
   }
 
+  /** Expected herbs from one patch that survives to harvest. */
+  static double expectedHerbsIfAlive(Patch p, Settings s, boolean capeWorn) {
+    double survival = herbSurvival(p, s, false);
+    return survival <= 0 ? 0 : expectedHerbs(p, s, capeWorn, false) / survival;
+  }
+
   static double xp(List<Step> route, Settings s) {
     double total = 0;
     boolean cape = farmingCapeWorn(route, s);
