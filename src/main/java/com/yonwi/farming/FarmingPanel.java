@@ -2216,6 +2216,12 @@ final class FarmingPanel extends PluginPanel {
       String type = runType(r);
       groups.computeIfAbsent(type, k -> new ArrayList<>()).add(r);
     }
+    // The run types you do most come first (ties keep herbs, then name order).
+    List<Map.Entry<String, List<RunRecord>>> bySize = new ArrayList<>(groups.entrySet());
+    bySize.sort(Comparator.comparingInt(e -> -e.getValue().size()));
+    Map<String, List<RunRecord>> sorted = new LinkedHashMap<>();
+    for (Map.Entry<String, List<RunRecord>> e : bySize) sorted.put(e.getKey(), e.getValue());
+    groups = sorted;
     if (groups.isEmpty())
       bestPage.add(muted("Finish a timed run to create your first leaderboard."));
     // Only the first run type starts open; the rest show their best run until expanded.
