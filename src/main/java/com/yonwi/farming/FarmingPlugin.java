@@ -768,7 +768,10 @@ public class FarmingPlugin extends Plugin {
     refreshHighlights();
     watchGardenerDialog();
     checkProgress();
-    if (config.debug()) debugScan();
+    if (config.debug()) {
+      debugScan();
+      trackLeg();
+    }
     // Nothing guided (between runs, bank first): don't leave a stale Shortest Path route.
     if (guidance == null) {
       shortestPath(null);
@@ -2348,6 +2351,67 @@ public class FarmingPlugin extends Plugin {
     return null;
   }
 
+  /** Debug, per stage: one leg from its teleport click to standing next to its patch. */
+  private String legPatch;
+
+  private int legStart, legLastClick, legTeleport, legTransport, legTiles, legWalkTicks, legJumps;
+  private boolean legDone;
+  private WorldPoint legLast;
+
+  /**
+   * Debug: measures this stage's leg in ticks and tiles, logged once you're next to the patch:
+   * the teleport (click to landing), any later transport (charter, boat, guide), and the tiles
+   * walked, as running ticks (2 tiles a tick) and the ticks actually spent walking.
+   */
+  private void trackLeg() {
+    Guidance step = guidance;
+    Player player = client.getLocalPlayer();
+    if (step == null || player == null) {
+      legPatch = null;
+      return;
+    }
+    int tick = client.getTickCount();
+    WorldPoint here = player.getWorldLocation();
+    if (!step.patchId.equals(legPatch)) {
+      legPatch = step.patchId;
+      legStart = tick;
+      legTeleport = legTransport = legTiles = legWalkTicks = legJumps = 0;
+      legDone = false;
+      legLast = here;
+      return;
+    }
+    if (legDone) return;
+    // Before the first jump, the leg starts when this stage's teleport or transport is used:
+    // walking about the bank beforehand doesn't count.
+    int used = Math.max(step.patchId.equals(teleportClickedPatch) ? teleportClickedAt : -1, stepTransportAt);
+    if (legJumps == 0 && used > legStart) {
+      legStart = used;
+      legTiles = legWalkTicks = 0;
+    }
+    WorldPoint before = legLast;
+    legLast = here;
+    if (before != null && !before.equals(here)) {
+      boolean jump = before.getPlane() != here.getPlane() || before.distanceTo(here) > 2;
+      if (jump) {
+        // From the click that set it off (the last click), or the leg's start.
+        int took = tick - Math.max(legStart, legLastClick);
+        if (legJumps++ == 0) legTeleport += took;
+        else legTransport += took;
+      } else {
+        legTiles += before.distanceTo(here);
+        legWalkTicks++;
+      }
+    }
+    TileObject patch = patchObject;
+    if (patch == null || patch.getPlane() != here.getPlane() || patch.getWorldLocation().distanceTo(here) > 2)
+      return;
+    legDone = true;
+    debugLog(
+        "leg " + step.patchId + ": teleport " + legTeleport + " ticks · transport " + legTransport
+            + " ticks · walked " + legTiles + " tiles (" + (legTiles + 1) / 2 + " ticks running, "
+            + legWalkTicks + " actual) · total " + (tick - legStart) + " ticks");
+  }
+
   /** Debug: noting advice last logged, and the stage last logged as started. */
   private String lastNoteLog, lastStageLog;
 
@@ -2685,6 +2749,7 @@ public class FarmingPlugin extends Plugin {
 
   @Subscribe
   public void onMenuOptionClicked(MenuOptionClicked e) {
+    legLastClick = client.getTickCount();
     debugLog(
         "click '" + Text.removeTags(e.getMenuOption()) + "' on '" + Text.removeTags(e.getMenuTarget())
             + "' action " + e.getMenuAction() + " id " + e.getId() + " param0 " + e.getParam0()
