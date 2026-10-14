@@ -2042,6 +2042,12 @@ public class FarmingPlugin extends Plugin {
       nextObjects = Collections.emptyList();
       nextNpcs = Collections.emptyList();
     }
+    // Noting advised before he's in view: nothing at the patch is lit; the line leads to his spot.
+    if (noteAdvice != null && leprechaun == null) {
+      objectHighlights = Collections.emptyList();
+      nextObjects = Collections.emptyList();
+      nextNpcs = Collections.emptyList();
+    }
     path = walkingPath(step, player);
   }
 
@@ -2099,13 +2105,21 @@ public class FarmingPlugin extends Plugin {
     // At a patch you've started on, or noting: no line (the highlights say what to click). The
     // line to the patch comes back while you're outside its area.
     boolean here = !step.phase.equals("Travel") && inPatchArea(step.patchId, from);
-    if (noteAdvice != null
-        || here && (noting || step.patchId.equals(workedPatch) || step.patchId.equals(pickingPatch))) {
+    // Noting advised but the leprechaun isn't in view yet: head for where he stands.
+    WorldPoint patchAt = TargetData.PATCH_POINTS.get(step.patchId);
+    WorldPoint lepSpot =
+        noteAdvice != null && npcHighlights.isEmpty() && patchAt != null
+            ? TargetData.nearestLeprechaun(patchAt)
+            : null;
+    if (lepSpot == null
+        && (noteAdvice != null
+            || here && (noting || step.patchId.equals(workedPatch) || step.patchId.equals(pickingPatch)))) {
       shortestPath(null);
       return Collections.emptyList();
     }
     WorldPoint to = null;
-    if (!npcHighlights.isEmpty()) to = npcHighlights.get(0).getWorldLocation();
+    if (lepSpot != null) to = lepSpot;
+    else if (!npcHighlights.isEmpty()) to = npcHighlights.get(0).getWorldLocation();
     else if (!objectHighlights.isEmpty()) to = objectHighlights.get(0).getWorldLocation();
     else if (!step.phase.equals("Travel") || arrivedLeg(step))
       to = TargetData.PATCH_POINTS.get(step.patchId);
@@ -2134,7 +2148,7 @@ public class FarmingPlugin extends Plugin {
     if (!npcHighlights.isEmpty() && to != null && to.equals(npcHighlights.get(0).getWorldLocation())) {
       NPCComposition npc = npcHighlights.get(0).getComposition();
       w = h = npc == null ? 1 : Math.max(1, npc.getSize());
-    } else {
+    } else if (lepSpot == null) {
       TileObject object = !objectHighlights.isEmpty() ? objectHighlights.get(0) : patchObject;
       if (object != null && to != null && object.getWorldLocation().distanceTo(to) <= 3) {
         to = object.getWorldLocation();
@@ -2328,9 +2342,12 @@ public class FarmingPlugin extends Plugin {
             && TargetData.HERB_REGIONS
                 .getOrDefault(step.patchId, Collections.emptySet())
                 .contains(here.getRegionID());
+    // Where he stands: NPCs only show within about 15 tiles, so until then his known spot.
+    WorldPoint lepAt =
+        leprechaun != null ? leprechaun.getWorldLocation() : at == null ? null : TargetData.nearestLeprechaun(at);
     if (!approaching) noteOnWayIn = null;
     else if (step.patchId.equals(noteOnWayIn)) return noteOnWayInText(free, step);
-    else if (leprechaun != null && leprechaun.getWorldLocation().distanceTo(here) < at.distanceTo(here)) {
+    else if (lepAt != null && lepAt.distanceTo(here) < at.distanceTo(here)) {
       noteOnWayIn = step.patchId;
       return noteOnWayInText(free, step);
     }
