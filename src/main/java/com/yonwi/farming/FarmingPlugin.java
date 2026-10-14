@@ -1822,8 +1822,16 @@ public class FarmingPlugin extends Plugin {
       if (object != null && to != null && object.getWorldLocation().distanceTo(to) <= 3) {
         to = object.getWorldLocation();
         if (object instanceof GameObject) {
-          w = ((GameObject) object).sizeX();
-          h = ((GameObject) object).sizeY();
+          GameObject big = (GameObject) object;
+          w = big.sizeX();
+          h = big.sizeY();
+          // Its south-west corner tile: the object's own position is its middle, which is a tile
+          // off on a 2×2 tree and aimed the route at the wrong side.
+          net.runelite.api.Point corner = big.getSceneMinLocation();
+          if (corner != null)
+            to =
+                WorldPoint.fromScene(
+                    client.getTopLevelWorldView(), corner.getX(), corner.getY(), big.getPlane());
         } else {
           // Herb patches aren't GameObjects: take the size from the object's definition, so the
           // route stops at the patch's edge instead of walking into it.
@@ -1865,9 +1873,17 @@ public class FarmingPlugin extends Plugin {
   private List<WorldPoint> worldRoute(WorldPoint from, WorldPoint to, int w, int h) {
     if (!WorldPath.ready()) return Collections.emptyList(); // still loading the map
     if (to.equals(worldRouteTarget)) {
-      for (int i = 0; i < worldRoute.size(); i++)
-        if (worldRoute.get(i).distanceTo(from) <= 1)
-          return worldRoute = new ArrayList<>(worldRoute.subList(i + 1, worldRoute.size()));
+      // Still on the saved route: draw it from the route tile nearest you onwards. The saved
+      // route itself is kept whole, so standing still gives the same line every tick.
+      int nearest = -1, best = 2;
+      for (int i = 0; i < worldRoute.size(); i++) {
+        int d = worldRoute.get(i).distanceTo(from);
+        if (d < best) {
+          best = d;
+          nearest = i;
+        }
+      }
+      if (nearest >= 0) return new ArrayList<>(worldRoute.subList(nearest + 1, worldRoute.size()));
       // No route to this target last time: only try again every few ticks.
       if (worldRoute.isEmpty() && client.getTickCount() - worldRouteSearchedAt < 10)
         return worldRoute;
