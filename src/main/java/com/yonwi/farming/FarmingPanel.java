@@ -175,6 +175,8 @@ final class FarmingPanel extends PluginPanel {
     body.add(tabs);
     add(body, BorderLayout.CENTER);
     JPanel bottom = column();
+    // The same gap above the timer as between the timer and the buttons.
+    bottom.add(Box.createVerticalStrut(5));
     clock.setForeground(INK);
     // The RuneScape bold font, like the rest of the sidebar.
     clock.setFont(Style.bold().deriveFont(22f));
