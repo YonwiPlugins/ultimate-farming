@@ -1087,8 +1087,8 @@ final class FarmingPanel extends PluginPanel {
     entries.sort(Comparator.comparingInt(e -> e.getKey().endsWith("sapling") ? 0 : 1));
     for (Map.Entry<String, Integer> e : entries) {
       String n = e.getKey();
-      if (settings.has("pouch") && POUCH_RUNES.contains(n)) continue; // shown on the pouch
-      int repeats = n.endsWith("sapling") || n.equals("Ultracompost") ? e.getValue() : 1;
+      int repeats = squares(n, e.getValue(), settings);
+      if (repeats == 0) continue; // a pouch rune: shown on the pouch
       for (int i = 0; i < repeats; i++) {
         JPanel cell = new JPanel(new BorderLayout());
         cell.setOpaque(false);
@@ -1439,12 +1439,29 @@ final class FarmingPanel extends PluginPanel {
    * "Your run" on the Run tab: run types with their crops, then which patches. This is what
    * changes from run to run, so it sits right above "Prepare run".
    */
-  /** Whether the kit still fits in 28 inventory slots with this run type added. */
+  /**
+   * How many squares an item takes in the Kit tab's Bring section: one per sapling or
+   * ultracompost, none for runes kept in the rune pouch, one for anything else.
+   */
+  private static int squares(String name, int quantity, Settings s) {
+    if (s.has("pouch") && POUCH_RUNES.contains(name)) return 0;
+    return name.endsWith("sapling") || name.equals("Ultracompost") ? quantity : 1;
+  }
+
+  /** Squares in the Kit tab's Bring section: the inventory space the run needs. */
+  private static int bringSquares(FarmingPlanner.Kit kit, Settings s) {
+    int total = 0;
+    for (Map.Entry<String, Integer> e : kit.bring.entrySet())
+      total += squares(e.getKey(), e.getValue(), s);
+    return total;
+  }
+
+  /** Whether the Bring section still fits in 28 inventory slots with this run type added. */
   private boolean fitsWith(String kind) {
     Settings copy = gson.fromJson(gson.toJson(settings), Settings.class);
     copy.kinds.add(kind);
     List<FarmingPlanner.Step> plan = FarmingPlanner.plan(copy);
-    return FarmingPlanner.slots(FarmingPlanner.kit(plan, copy)) <= 28;
+    return bringSquares(FarmingPlanner.kit(plan, copy), copy) <= 28;
   }
 
   /** The Run tab's patch list is shown (it starts collapsed each session). */
@@ -1531,7 +1548,7 @@ final class FarmingPanel extends PluginPanel {
         }
         addCard(page, card);
       }
-      int slots = kit == null ? 0 : FarmingPlanner.slots(kit);
+      int slots = kit == null ? 0 : bringSquares(kit, settings);
       if (slots > 28) {
         JLabel over =
             muted("Too many items needed to fit in your inventory");
