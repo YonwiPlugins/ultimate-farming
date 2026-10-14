@@ -62,6 +62,8 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
     PATCH_POINTS.put("kastori", new WorldPoint(1350, 3057, 0));
     // Locus Oasis hardwood patch: 3×3 from 1686,2971 to 1688,2973 (checked in-game).
     PATCH_POINTS.put("locus", new WorldPoint(1687, 2972, 0));
+    // Anglers' Retreat hardwood patch, 3×3 from 2470,2702.
+    PATCH_POINTS.put("anglers", new WorldPoint(2471, 2703, 0));
     PATCH_POINTS.put("calquat", new WorldPoint(2795, 3102, 0));
     PATCH_POINTS.put("kastoricalquat", new WorldPoint(1366, 3033, 0));
     // Summer Shore (Great Conch) Calquat patch.
@@ -128,7 +130,9 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
             "palm",
             "dragonfruit");
       case "hardwood":
-        return contains(n, "hardwood", "teak", "mahogany", "camphor", "ironwood", "rosewood");
+        // Anglers' Retreat's empty patch is just "Tree patch".
+        return n.equals("tree patch")
+            || contains(n, "hardwood", "teak", "mahogany", "camphor", "ironwood", "rosewood");
       default:
         return !contains(
             n,

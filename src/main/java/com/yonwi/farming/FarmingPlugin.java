@@ -303,9 +303,9 @@ public class FarmingPlugin extends Plugin {
 
   /** Remembers the last few detected events for the debug box. */
   private void event(String text) {
-    debugLog("event: " + text);
     String line = text.length() > 40 ? text.substring(0, 40) + "…" : text;
     if (line.equals(events.peekFirst())) return;
+    debugLog("event: " + text);
     events.addFirst(line);
     while (events.size() > 4) events.removeLast();
   }
@@ -676,6 +676,8 @@ public class FarmingPlugin extends Plugin {
                 || n.toLowerCase(Locale.ROOT).contains("railing")
                 || n.toLowerCase(Locale.ROOT).contains("portal")
                 || n.toLowerCase(Locale.ROOT).contains("jewellery box")
+                || n.toLowerCase(Locale.ROOT).contains("gangplank")
+                || n.toLowerCase(Locale.ROOT).contains("rowboat")
                 || n.toLowerCase(Locale.ROOT).contains("altar"))) sceneObjects.add(object);
   }
 
@@ -775,6 +777,7 @@ public class FarmingPlugin extends Plugin {
         // starts over from here, so its nexus, box, ring or tree is the thing to use again.
         jumped = false;
         teleportedThisLeg = false;
+        charteredPatch = null;
       }
       boolean teleported =
           before != null
@@ -883,6 +886,10 @@ public class FarmingPlugin extends Plugin {
     // Only trust a reading that holds for two ticks: just after a teleport the scene is still
     // loading and the wrong object, or a half-loaded one, can briefly be found.
     String reading = step.patchId + step.phase + patch.getWorldLocation() + c.getId() + done;
+    if (!reading.equals(lastReading))
+      debugLog(
+          "patch " + c.getName() + " id " + c.getId() + " at " + patch.getWorldLocation() + " actions "
+              + Arrays.toString(c.getActions()) + " · " + step.phase + " done " + done);
     readingTicks = reading.equals(lastReading) ? readingTicks + 1 : 0;
     lastReading = reading;
     // Straight away normally; two matching ticks just after a scene load.
@@ -1362,8 +1369,14 @@ public class FarmingPlugin extends Plugin {
     if (travel.contains("charter")) {
       java.util.regex.Matcher to =
           java.util.regex.Pattern.compile("charter to ([a-z' ]+?)(;|,| then|$)").matcher(travel);
-      if (to.find()) wanted.add(new String[] {"trader crew", "charter-to " + to.group(1).trim()});
-      wanted.add(new String[] {"trader crew", "charter"});
+      if (chartered()) {
+        // Off the ship, then on: the gangplank's Cross and the rowboat's Travel.
+        wanted.add(new String[] {"gangplank", "cross"});
+        wanted.add(new String[] {"rowboat", "travel"});
+      } else {
+        if (to.find()) wanted.add(new String[] {"trader crew", "charter-to " + to.group(1).trim()});
+        wanted.add(new String[] {"trader crew", "charter"});
+      }
     }
     if (travel.contains("spirit tree")) {
       wanted.add(new String[] {"spiritual fairy tree", "tree"});
@@ -1721,6 +1734,15 @@ public class FarmingPlugin extends Plugin {
       if (used.find()) {
         setCapeSwapsUsed(Integer.parseInt(used.group(1)));
         capeSwapClickedAt = -1; // counted from the message, not the varbit change
+      }
+    }
+    // "You pay 500 coins and sail to Corsair Cove.": this stage's charter is done, so its crew
+    // are never lit again; the ship's gangplank and then the next leg are what's left.
+    if (m.startsWith("you pay ") && m.contains(" and sail to ")) {
+      Guidance step = guidance;
+      if (step != null && step.phase.equals("Travel")) {
+        charteredPatch = step.patchId;
+        event("chartered: " + step.patchId);
       }
     }
     if (m.contains("already resurrected")) {
@@ -2250,6 +2272,26 @@ public class FarmingPlugin extends Plugin {
         return portal;
       }
     }
+    // After the charter: on the ship, its gangplank; on the dock, the rowboat on (Corsair Cove's
+    // to Anglers' Retreat, by ID: the one back from there is another).
+    charterCrew = Collections.emptyList();
+    if (travel.contains("charter") && !house && chartered()) {
+      if (player.getWorldLocation().getPlane() > 0) return nearestObject(player, 10, "gangplank");
+      if (travel.contains("rowboat")) {
+        TileObject boat = null;
+        int closest = 60;
+        for (TileObject o : sceneObjects) {
+          if (o.getId() != CORSAIR_ROWBOAT) continue;
+          int d = o.getWorldLocation().distanceTo(player.getWorldLocation());
+          if (d < closest) {
+            boat = o;
+            closest = d;
+          }
+        }
+        return boat;
+      }
+      return null;
+    }
     // A charter leg (e.g. Catherby to Corsair Cove): the ship's Trader Crewmembers on the dock.
     if (travel.contains("charter") && !house) {
       NPC crew = null;
@@ -2319,6 +2361,18 @@ public class FarmingPlugin extends Plugin {
   private TileObject houseObject(Guidance step, Player player) {
     List<String> names = routeObjects(step.travel, true);
     return names.isEmpty() ? null : nearestObject(player, 40, names.toArray(new String[0]));
+  }
+
+  /** Corsair Cove's rowboat to Anglers' Retreat. */
+  private static final int CORSAIR_ROWBOAT = 58637;
+
+  /** The stage whose charter has been sailed ("You pay … and sail to …"), or null. */
+  private volatile String charteredPatch;
+
+  /** This stage's charter is done: its crew aren't lit any more, the gangplank and boat are. */
+  boolean chartered() {
+    Guidance step = guidance;
+    return step != null && step.patchId.equals(charteredPatch);
   }
 
   /** On the Catherby dock, in sight of the charter ship's crew. */

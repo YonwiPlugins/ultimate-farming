@@ -162,7 +162,7 @@ final class FarmingInventoryOverlay extends Overlay {
     boolean houseReturn = plugin.houseReturn();
     if (step.phase.equals("Travel") || houseReturn) markMenuChoice(g, step.travel);
     // A charter ship's map: the X for this route's port (its tooltip names it, e.g. Corsair Cove).
-    if (step.phase.equals("Travel")) markCharterPort(g, step.travel);
+    if (step.phase.equals("Travel") && !plugin.chartered()) markCharterPort(g, step.travel);
     // The fairy ring's travel log, in the house too.
     if (step.phase.equals("Travel") || houseReturn) markFairyLog(g, step.travel);
     // Nothing in the inventory is for the house: the way back out is all that's lit up.
@@ -510,10 +510,15 @@ final class FarmingInventoryOverlay extends Overlay {
     if (roots != null) for (Widget root : roots) markNamed(g, root, port, 0);
   }
 
-  /** Marks the widget whose name (its hover tooltip) names this place, searching nested widgets. */
+  /**
+   * Marks the widget whose name or click option names this place, searching nested widgets: the
+   * charter map's X and the Destination list's row both have the port as their option.
+   */
   private void markNamed(Graphics2D g, Widget w, String place, int depth) {
     if (w == null || w.isHidden() || depth > 10) return;
-    String name = w.getName() == null ? "" : Text.removeTags(w.getName()).toLowerCase(Locale.ROOT);
+    StringBuilder all = new StringBuilder(w.getName() == null ? "" : w.getName());
+    if (w.getActions() != null) for (String a : w.getActions()) if (a != null) all.append(' ').append(a);
+    String name = Text.removeTags(all.toString()).toLowerCase(Locale.ROOT);
     if (name.contains(place)) {
       Rectangle visible = visibleBounds(w);
       if (!visible.isEmpty()) mark(g, visible, ITEM);
