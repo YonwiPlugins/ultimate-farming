@@ -762,6 +762,10 @@ public class FarmingPlugin extends Plugin {
       if (inHouse && !wasInHouse) {
         stepTransportAt = -100;
         leftHousePatch = null; // back inside
+        // Back in the house partway through the trip (e.g. for something forgotten): the route
+        // starts over from here, so its nexus, box, ring or tree is the thing to use again.
+        jumped = false;
+        teleportedThisLeg = false;
       }
       boolean teleported =
           before != null
