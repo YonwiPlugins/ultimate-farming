@@ -76,13 +76,14 @@ final class Settings {
     return protects(p.kind) && !diseaseFree(p) && TargetData.GARDENERS.containsKey(p.id);
   }
 
-  /** Use compost here: herbs and Celastrus always; trees when unprotected and not disease-free. */
+  /** Use compost here: herbs always, Celastrus when harvested; trees when unprotected and not disease-free. */
   boolean composts(Patch p) {
     // Herbs and Celastrus: compost raises the yield (wiki: "The yield of celastrus bark can be
     // improved by composting"). Other trees: it only fights disease, so it's pointless when the
     // gardener protects the tree.
+    // Celastrus only when its bark is harvested (or the gardener isn't paid to protect it).
     return p.kind.equals("herb")
-        || p.kind.equals("celastrus")
+        || p.kind.equals("celastrus") && harvests("celastrus")
         || !pays(p) && !diseaseFree(p);
   }
 

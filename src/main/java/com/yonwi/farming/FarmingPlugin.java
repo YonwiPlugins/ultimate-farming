@@ -307,6 +307,11 @@ public class FarmingPlugin extends Plugin {
     List<String> lines = new ArrayList<>();
     Guidance step = guidance;
     Player player = client.getLocalPlayer();
+    // Where you're standing, e.g. to map a new shortcut or patch.
+    if (player != null) {
+      WorldPoint at = player.getWorldLocation();
+      lines.add("tile " + at.getX() + ", " + at.getY() + ", " + at.getPlane() + " · region " + at.getRegionID());
+    }
     if (step == null) lines.add("No step (bank first or no route)");
     else {
       lines.add(
@@ -422,10 +427,21 @@ public class FarmingPlugin extends Plugin {
 
   /** Whether the player has one of these items selected, ready to use on a patch. */
   boolean selectedItem(Set<Integer> ids) {
+    // Just used on the patch (or NPC) for this step: it stays "selected" while you walk over, so
+    // it doesn't light up again until the step finishes (or ~6 seconds pass with nothing).
+    Guidance step = guidance;
+    if (step != null
+        && (step.patchId + step.phase).equals(usedOnStep)
+        && client.getTickCount() - usedOnTick <= 10) return true;
     if (!client.isWidgetSelected()) return false;
     Widget selected = client.getSelectedWidget();
     return selected != null && ids.contains(selected.getItemId());
   }
+
+  /** When an item was last used on an object or NPC, and on which step. */
+  private int usedOnTick = -100;
+
+  private String usedOnStep;
 
   List<String> missingItems() {
     return missing;
@@ -2165,6 +2181,12 @@ public class FarmingPlugin extends Plugin {
         teleportClickedAt = client.getTickCount();
         teleportClickedPatch = step.patchId;
       }
+    }
+    // An item used on the patch or an NPC (seed, sapling, compost, herbs on the leprechaun).
+    if (e.getMenuAction() == MenuAction.WIDGET_TARGET_ON_GAME_OBJECT
+        || e.getMenuAction() == MenuAction.WIDGET_TARGET_ON_NPC) {
+      usedOnTick = client.getTickCount();
+      usedOnStep = step.patchId + step.phase;
     }
     // Checking a tree at another route patch moves the guide there (you've skipped ahead).
     if (option.equals("check-health")) patchAction("Check health", null);
