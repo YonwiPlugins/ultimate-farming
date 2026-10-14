@@ -1508,7 +1508,7 @@ final class FarmingPanel extends PluginPanel {
   private JPanel collapsibleHeading(JLabel section, boolean open, String showTip, Runnable toggle) {
     JPanel heading = new JPanel(new BorderLayout());
     heading.setOpaque(false);
-    heading.add(section, BorderLayout.WEST);
+    heading.add(section, BorderLayout.CENTER);
     heading.add(iconButton(open ? "▴" : "▾", open ? "Hide" : showTip, MUTED, toggle), BorderLayout.EAST);
     heading.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     heading.addMouseListener(
@@ -1622,7 +1622,7 @@ final class FarmingPanel extends PluginPanel {
           };
       JPanel heading = new JPanel(new BorderLayout());
       heading.setOpaque(false);
-      heading.add(Style.section("Patches", "(" + chosen + " selected)"), BorderLayout.WEST);
+      heading.add(Style.section("Patches", "(" + chosen + " selected)"), BorderLayout.CENTER);
       heading.add(
           iconButton(
               patchesOpen ? "▴" : "▾",
