@@ -281,7 +281,6 @@ final class FarmingPanel extends PluginPanel {
     phaseIndex = 0;
     setupStep = 0;
     latestRecord = null;
-    tablesInitialised = false;
     collapsedTables.clear();
     editingTables.clear();
     loadState();
@@ -1493,6 +1492,37 @@ final class FarmingPanel extends PluginPanel {
     return spaceNeeded(plan, FarmingPlanner.kit(plan, copy), copy) <= 28;
   }
 
+  /** A run type's name for headings: "Trees", "Fruit trees", "Herb", "Calquat"… */
+  private static String kindTitle(String kind) {
+    return kind.equals("fruit")
+        ? "Fruit trees"
+        : kind.equals("tree")
+            ? "Trees"
+            : Character.toUpperCase(kind.charAt(0)) + kind.substring(1);
+  }
+
+  /** Setup's "Detected on your account" box is shown (it starts collapsed each session). */
+  private boolean detectedOpen;
+
+  /** A gold section heading with a ▾/▴ button on the right; the whole row toggles. */
+  private JPanel collapsibleHeading(JLabel section, boolean open, String showTip, Runnable toggle) {
+    JPanel heading = new JPanel(new BorderLayout());
+    heading.setOpaque(false);
+    heading.add(section, BorderLayout.WEST);
+    heading.add(iconButton(open ? "▴" : "▾", open ? "Hide" : showTip, MUTED, toggle), BorderLayout.EAST);
+    heading.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+    heading.addMouseListener(
+        new java.awt.event.MouseAdapter() {
+          @Override
+          public void mouseClicked(java.awt.event.MouseEvent e) {
+            toggle.run();
+          }
+        });
+    heading.setAlignmentX(Component.LEFT_ALIGNMENT);
+    heading.setMaximumSize(new Dimension(Integer.MAX_VALUE, heading.getPreferredSize().height));
+    return heading;
+  }
+
   /** The Run tab's patch list is shown (it starts collapsed each session). */
   private boolean patchesOpen;
 
@@ -1501,12 +1531,7 @@ final class FarmingPanel extends PluginPanel {
       if (clientLevel == 0) page.add(muted("Log in to read your Farming level."));
       if (session != null) page.add(muted("Finish or reset your run to change it."));
       for (String kind : FarmingData.CROPS.keySet()) {
-        String title =
-            kind.equals("fruit")
-                ? "Fruit trees"
-                : kind.equals("tree")
-                    ? "Trees"
-                    : Character.toUpperCase(kind.charAt(0)) + kind.substring(1);
+        String title = kindTitle(kind);
         // One card per run type: tick to include it, then pick the crop from its drop-down.
         JPanel card = Style.card();
         boolean on = settings.kinds.contains(kind);
@@ -1618,19 +1643,31 @@ final class FarmingPanel extends PluginPanel {
       page.add(heading);
       if (!patchesOpen) return;
       JPanel patchCard = Style.card();
-      // The type is only worth naming when more than one is in the run.
+      // One heading per run type (only worth it when there's more than one), patches under it.
       boolean mixed = settings.kinds.size() > 1;
-      for (Patch p : FarmingData.PATCHES)
-        if (settings.kinds.contains(p.kind)) {
-          patchCard.add(
-              check(
-                  mixed ? p.name + " · " + p.kind : p.name,
-                  !settings.excluded.contains(p.id),
-                  v -> {
-                    if (v) settings.excluded.remove(p.id);
-                    else settings.excluded.add(p.id);
-                  }));
+      for (String kind : FarmingData.CROPS.keySet()) {
+        if (!settings.kinds.contains(kind)) continue;
+        if (mixed) {
+          // "Tree patches", "Fruit tree patches", "Herb patches"…
+          String one = kind.equals("tree") ? "Tree" : kind.equals("fruit") ? "Fruit tree" : kindTitle(kind);
+          JLabel group = label(one + " patches");
+          group.setFont(Style.bold());
+          group.setForeground(Style.GOLD);
+          group.setBorder(new EmptyBorder(patchCard.getComponentCount() == 0 ? 0 : 6, 0, 2, 0));
+          group.setAlignmentX(Component.LEFT_ALIGNMENT);
+          patchCard.add(group);
         }
+        for (Patch p : FarmingData.PATCHES)
+          if (p.kind.equals(kind))
+            patchCard.add(
+                check(
+                    p.name,
+                    !settings.excluded.contains(p.id),
+                    v -> {
+                      if (v) settings.excluded.remove(p.id);
+                      else settings.excluded.add(p.id);
+                    }));
+      }
       if (patchCard.getComponentCount() > 0) addCard(page, patchCard);
   }
 
@@ -1683,8 +1720,8 @@ final class FarmingPanel extends PluginPanel {
         {"redirect", "Redirected house tablets", "Taverley and Brimhaven house tablets."},
         {
           "catherbyPortal",
-          "Catherby portal or portal nexus in house",
-          "Can't be detected: tick if your house can teleport you to Catherby."
+          "Catherby portal in house",
+          "A Catherby portal, or a portal nexus with Catherby, in your house."
         },
         {"fairy", "Fairy rings", "Bring dramen staff unless your unlocks waive it."},
         {
@@ -1692,8 +1729,13 @@ final class FarmingPanel extends PluginPanel {
           "Fairy ring in house",
           "Fairy ring or spiritual fairy tree in your house: fairy trips start with a house teleport."
         },
-        {"varlamore", "Auburn Valley unlocked", "Separate from Pendant of ates ownership."},
-        {"kastori", "Kastori unlocked", "Separate from Pendant of ates ownership."},
+        {"varlamore", "Auburn Valley unlocked", "Children of the Sun completed (Varlamore)."},
+        {
+          "kastori",
+          "Kastori unlocked",
+          "You can reach Kastori in southern Varlamore: its quetzal landing site built, its Pendant"
+              + " of ates statue activated, or by Achilka's boat."
+        },
         {"pendant", "Pendant of ates", "Nemus Retreat and Kastori teleport options."},
         {"quetzal", "Quetzal landing sites", "Required landing sites must already be built."},
         {"whistle", "Quetzal whistle", "Bring a charged whistle."},
@@ -1728,7 +1770,16 @@ final class FarmingPanel extends PluginPanel {
       addCard(setupPage, unlockCard);
       // What the account already has, below the choices: there's nothing to do with these.
       if (account != null) {
-        setupPage.add(Style.section("Detected on your account"));
+        setupPage.add(
+            collapsibleHeading(
+                Style.section("Detected on your account"),
+                detectedOpen,
+                "Show what was detected",
+                () -> {
+                  detectedOpen = !detectedOpen;
+                  renderSetup();
+                }));
+        if (!detectedOpen) return;
         JPanel detected = Style.card();
         if (found.isEmpty() && account.house == null) detected.add(muted("Nothing yet."));
         else detected.add(detectedGrid(flags, known, account.house));
@@ -2335,12 +2386,7 @@ final class FarmingPanel extends PluginPanel {
     groups = sorted;
     if (groups.isEmpty())
       bestPage.add(muted("Finish a timed run to create your first leaderboard."));
-    // Only the first run type starts open; the rest show their best run until expanded.
-    if (!tablesInitialised && !groups.isEmpty()) {
-      tablesInitialised = true;
-      collapsedTables.addAll(groups.keySet());
-      collapsedTables.remove(groups.keySet().iterator().next());
-    }
+    // Every table starts expanded; collapsing is up to you.
     for (Map.Entry<String, List<RunRecord>> group : groups.entrySet()) {
       List<RunRecord> runs = group.getValue();
       // Most patches first, then fastest; runs with a struck-off time go to the bottom.
@@ -2448,7 +2494,6 @@ final class FarmingPanel extends PluginPanel {
   /** Item pictures already loaded, by "id|width|height" (Swing thread only). */
   private final Map<String, Icon> iconCache = new HashMap<>();
 
-  private boolean tablesInitialised;
   private final Set<String> collapsedTables = new HashSet<>();
 
   /** Gold heading with a crop icon, plus the edit pencil and the expand/collapse chevron. */
