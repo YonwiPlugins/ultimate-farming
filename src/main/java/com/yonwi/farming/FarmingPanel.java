@@ -1502,7 +1502,7 @@ final class FarmingPanel extends PluginPanel {
           name.setForeground(Style.DONE_TEXT);
           count.setForeground(Style.DONE_TEXT);
           picture.setEnabled(false);
-          String tip = "Too many items needed, won't fit in your inventory";
+          String tip = "Too many items needed to fit in your inventory";
           for (JComponent c : new JComponent[] {card, head, name, count, picture, include})
             c.setToolTipText(tip);
         }
@@ -1530,7 +1530,7 @@ final class FarmingPanel extends PluginPanel {
       int slots = kit == null ? 0 : FarmingPlanner.slots(kit);
       if (slots > 28) {
         JLabel over =
-            muted("Too many items needed, won't fit in your inventory");
+            muted("Too many items needed to fit in your inventory");
         over.setForeground(WARN);
         page.add(over);
       }
