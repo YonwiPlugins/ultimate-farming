@@ -1563,6 +1563,12 @@ public class FarmingPlugin extends Plugin {
     if (m.startsWith("you plant ")) patchAction("Plant", patchKind(m));
     // Only "You treat the … patch": inspecting says "has been treated", which isn't you composting.
     else if (m.startsWith("you treat") && m.contains("compost")) patchAction("Compost", patchKind(m));
+    // Missed it (e.g. lag)? Inspecting the patch says "has been treated with … compost": while
+    // composting is the step, that counts too.
+    else if (m.contains("treated with")
+        && m.contains("compost")
+        && guidance != null
+        && guidance.phase.equals("Compost")) patchAction("Compost", patchKind(m));
   }
 
   /** Gardeners confirm protection in dialogue rather than in chat. */
