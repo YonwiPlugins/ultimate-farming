@@ -158,11 +158,15 @@ final class FarmingInventoryOverlay extends Overlay {
     // Once the seed or compost is selected, only the patch is left to click.
     if (plugin.selectedItem(relevant)) return null;
     // Spirit tree, portal nexus and jewellery box menus: highlight this route's destination.
-    if (step.phase.equals("Travel")) markMenuChoice(g, step.travel);
+    // (Also back in the house partway through a stage that came through it.)
+    boolean houseReturn = plugin.houseReturn();
+    if (step.phase.equals("Travel") || houseReturn) markMenuChoice(g, step.travel);
     // A charter ship's map: the X for this route's port (its tooltip names it, e.g. Corsair Cove).
     if (step.phase.equals("Travel")) markCharterPort(g, step.travel);
     // The fairy ring's travel log, in the house too.
-    if (step.phase.equals("Travel")) markFairyLog(g, step.travel);
+    if (step.phase.equals("Travel") || houseReturn) markFairyLog(g, step.travel);
+    // Nothing in the inventory is for the house: the way back out is all that's lit up.
+    if (houseReturn) return null;
     // A teleport's menu or map is open: the destination in it is the one thing to click now.
     if (step.phase.equals("Travel") && destinationMenuOpen()) {
       markQuetzalDestination(g, step.travel);
@@ -476,6 +480,7 @@ final class FarmingInventoryOverlay extends Overlay {
     return travel
         .substring(arrow + 1)
         .split("[,;]| then | → ")[0]
+        .replaceFirst("(?i)^\\s*portal nexus:\\s*", "")
         .replace("portal", "")
         .trim()
         .toLowerCase(Locale.ROOT);

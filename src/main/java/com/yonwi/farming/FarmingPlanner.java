@@ -105,7 +105,7 @@ final class FarmingPlanner {
           if(s.has("herbArdy")) add(o,s,"Ardougne cloak → farm",.5,new String[]{"Ardougne cloak"});
           add(o,s,"Ardougne teleport → north to farm",2,new String[]{"Ardougne teleport tablets"}); break;
         case "herbcatherby":
-          if(s.has("catherbyPortal")) poh(o,s,"House teleport → Catherby portal, then north-west to herb patch",.6);
+          if(s.has("catherbyPortal")) poh(o,s,"House teleport → Portal nexus: Catherby, then north-west to herb patch",.6);
           if(s.has("catherby")) add(o,s,"Catherby teleport → north-west to herb patch",.5,new String[]{"Catherby teleport tablets"});
           add(o,s,"Camelot teleport → south-east to Catherby farm",1.5,new String[]{"Camelot teleport tablets"}); break;
         case "herbhosidius":
@@ -249,7 +249,7 @@ final class FarmingPlanner {
         break;
       case "catherby":
         if (s.has("catherbyPortal"))
-          poh(o, s, "House teleport → Catherby portal, then east to the beach", .85);
+          poh(o, s, "House teleport → Portal nexus: Catherby, then east to the beach", .85);
         if (s.has("catherby"))
           add(
               o,
@@ -438,12 +438,12 @@ final class FarmingPlanner {
               });
         break;
       case "anglers":
-        // Catherby portal in your house: right by the charter ship, much nearer than Camelot.
+        // Catherby Teleport in your portal nexus: lands by the charter ship, much nearer than Camelot.
         if (s.has("catherbyPortal"))
           add(
               o,
               s,
-              "House teleport → Catherby portal; charter to Corsair Cove, rowboat to Anglers’"
+              "House teleport → Portal nexus: Catherby; charter to Corsair Cove, rowboat to Anglers’"
                   + " Retreat, then south",
               s.has("cape") ? 4.2 : 4.4,
               s.has("cape")

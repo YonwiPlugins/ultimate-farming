@@ -47,7 +47,7 @@ final class TeleportData {
               "southwest", "patch", "herb", "herbs", "tree", "fruit", "house", "portal", "beach",
               "walk", "follow", "landing", "site", "through", "castle", "with", "from", "into",
               "near", "farm", "your", "teleport", "cast", "guide", "mountain", "charter", "rowboat",
-              "boat", "nearby", "inside", "outside"));
+              "boat", "nearby", "inside", "outside", "nexus"));
 
   /** Lower case, letters, digits and single spaces only ("Xeric's Glade" → "xerics glade"). */
   static String norm(String s) {

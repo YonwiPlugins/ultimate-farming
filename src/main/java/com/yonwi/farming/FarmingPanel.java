@@ -1387,7 +1387,7 @@ final class FarmingPanel extends PluginPanel {
     {"skills", "Skills necklace", "Skills necklace"},
     {"catherby", "Catherby tablet", "Catherby teleport"},
     {"redirect", "House tablets", "House teleport"},
-    {"catherbyPortal", "Catherby portal", "House teleport"},
+    {"catherbyPortal", "Nexus: Catherby", "House teleport"},
     {"fairy", "Fairy rings", "Dramen or lunar staff"},
     {"houseFairy", "House fairy ring", "Dramen or lunar staff"},
     {"varlamore", "Auburn Valley", "Pendant of ates"},
@@ -1743,8 +1743,8 @@ final class FarmingPanel extends PluginPanel {
         {"redirect", "Redirected house tablets", "Taverley and Brimhaven house tablets."},
         {
           "catherbyPortal",
-          "Catherby portal in house",
-          "A Catherby portal, or a portal nexus with Catherby, in your house."
+          "Catherby Teleport in portal nexus",
+          "Your portal nexus has Catherby Teleport."
         },
         {"fairy", "Fairy rings", "Bring dramen staff unless your unlocks waive it."},
         {

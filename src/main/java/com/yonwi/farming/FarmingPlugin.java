@@ -779,6 +779,8 @@ public class FarmingPlugin extends Plugin {
                   ? fromStep
                   : TeleportData.landedFor(step.travel, here, 10));
       if (teleported) event((rightPlace ? "landed right: " : "landed elsewhere: ") + here.getX() + "," + here.getY());
+      // Landed somewhere else: the teleport is to be used again, so it lights up straight away.
+      if (teleported && !rightPlace) teleportClickedAt = -100;
       fromStep = rightPlace;
       if (teleported && !fromStep && wasInHouse) leftHousePatch = step.patchId;
       // A second leg after the teleport (guide, boat, quetzal...) means only arriving counts.
@@ -1171,7 +1173,7 @@ public class FarmingPlugin extends Plugin {
   @Subscribe
   public void onPostClientTick(PostClientTick e) {
     Guidance step = guidance;
-    if (step == null || !step.phase.equals("Travel")) return;
+    if (step == null || !step.phase.equals("Travel") && !houseReturn()) return;
     colourMenuDestination(step);
     String code = FarmingPlanner.fairyCode(step.travel);
     Widget contents = client.getWidget(InterfaceID.FairyringsLog.CONTENTS);
@@ -1318,7 +1320,8 @@ public class FarmingPlugin extends Plugin {
       if (pay != null) moveToLeftClick(entries, pay);
       return;
     }
-    if (step == null || !step.phase.equals("Travel") || client.isMenuOpen()) return;
+    if (step == null || !step.phase.equals("Travel") && !houseReturn() || client.isMenuOpen())
+      return;
     String travel = step.travel.toLowerCase(Locale.ROOT);
     String code = FarmingPlanner.fairyCode(step.travel);
     List<String[]> wanted = new ArrayList<>(); // {target contains, option contains}, best first
@@ -1859,12 +1862,18 @@ public class FarmingPlugin extends Plugin {
           }
         }
     }
+    // Back in the house partway through a stage that came through it: the way back out again.
+    boolean houseReturn = houseReturn();
     Object current =
         step.phase.equals("Travel")
             ? transportObject(step, player)
-            : target(step, step.phase, gardener, patch, leprechaun);
+            : houseReturn
+                ? houseObject(step, player)
+                : target(step, step.phase, gardener, patch, leprechaun);
     Object next =
-        step.nextPhase == null ? null : target(step, step.nextPhase, gardener, patch, leprechaun);
+        step.nextPhase == null || houseReturn
+            ? null
+            : target(step, step.nextPhase, gardener, patch, leprechaun);
     if (current instanceof TileObject)
       objectHighlights = Collections.singletonList((TileObject) current);
     if (current instanceof NPC) npcHighlights = Collections.singletonList((NPC) current);
@@ -1953,6 +1962,14 @@ public class FarmingPlugin extends Plugin {
     if (fixed != null && (!noting || to == null)
         && (objectHighlights.isEmpty() && npcHighlights.isEmpty() || !step.phase.equals("Travel"))
         && (!step.phase.equals("Travel") || arrivedLeg(step))) to = fixed;
+    // Charter from Catherby, the crew not in view yet: head for the dock, where they are.
+    String routeText = step.travel.toLowerCase(Locale.ROOT);
+    if (step.phase.equals("Travel")
+        && routeText.contains("charter")
+        && routeText.contains("catherby")
+        && npcHighlights.isEmpty()
+        && from.getPlane() == 0
+        && CATHERBY_DOCK.distanceTo(from) < 100) to = CATHERBY_DOCK;
     // Landed in Quetzacalli Gorge but the Mountain Guide isn't in view yet: head for his spot.
     if (step.phase.equals("Travel")
         && step.travel.toLowerCase(Locale.ROOT).contains("mountain guide")
@@ -2250,21 +2267,49 @@ public class FarmingPlugin extends Plugin {
       // Already through the spirit tree: never fall back to highlighting the village's own tree.
       if (jumped) return null;
     }
+    List<String> names = routeObjects(step.travel, house);
+    if (names.isEmpty()) return null;
+    return nearestObject(player, 40, names.toArray(new String[0]));
+  }
+
+  /** The fairy ring, spirit tree, jewellery box or portal (nexus) this route uses. */
+  private static List<String> routeObjects(String route, boolean house) {
+    String travel = route.toLowerCase(Locale.ROOT);
     List<String> names = new ArrayList<>();
     if (travel.contains("fairy ring")) names.addAll(Arrays.asList("fairy ring", "spiritual fairy tree"));
     if (travel.contains("spirit tree")) names.addAll(Arrays.asList("spirit tree", "spiritual fairy tree"));
     // In the house: the jewellery box or the portal (nexus) the route uses.
     if (house && travel.contains("jewellery box")) names.add("jewellery box");
-    // The nexus or the destination's own portal (e.g. "Catherby portal"), never the plain exit
+    // The nexus or the destination's own portal (e.g. "Ardougne portal"), never the plain exit
     // "Portal" by the house entrance.
     if (house && travel.contains("portal")) {
       names.add("nexus");
-      String place = FarmingInventoryOverlay.destination(step.travel);
+      String place = FarmingInventoryOverlay.destination(route);
       if (place.length() > 3) names.add(place);
     }
-    if (names.isEmpty()) return null;
-    return nearestObject(player, 40, names.toArray(new String[0]));
+    return names;
   }
+
+  /**
+   * In the house partway through a stage whose route came through it (e.g. back for something
+   * forgotten): its nexus, portal, box, ring or tree leads back out. The stage keeps its place.
+   */
+  boolean houseReturn() {
+    Guidance step = guidance;
+    if (step == null || step.phase.equals("Travel")) return false;
+    if (!client.getTopLevelWorldView().isInstance()) return false;
+    String travel = step.travel.toLowerCase(Locale.ROOT);
+    return travel.startsWith("house ") || travel.startsWith("poh ") || travel.contains("your house");
+  }
+
+  /** The way back out of the house for this stage: see {@link #houseReturn()}. */
+  private TileObject houseObject(Guidance step, Player player) {
+    List<String> names = routeObjects(step.travel, true);
+    return names.isEmpty() ? null : nearestObject(player, 40, names.toArray(new String[0]));
+  }
+
+  /** On the Catherby dock, in sight of the charter ship's crew. */
+  private static final WorldPoint CATHERBY_DOCK = new WorldPoint(2798, 3414, 0);
 
   /** The nearest remembered object whose name contains one of these (lower case) words. */
   private TileObject nearestObject(Player player, int within, String... names) {
