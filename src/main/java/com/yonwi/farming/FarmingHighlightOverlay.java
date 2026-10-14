@@ -67,7 +67,31 @@ final class FarmingHighlightOverlay extends Overlay {
     }
     for (NPC npc : plugin.highlightNpcs())
       FarmingInventoryOverlay.mark(g, npc.getConvexHull(), ink);
+    if (config.debug()) logHighlights(ink);
     return null;
+  }
+
+  /** Debug: what's lit in the game world and in which colour, logged when it changes. */
+  private void logHighlights(Color ink) {
+    List<String> parts = new ArrayList<>();
+    String now = FarmingInventoryOverlay.colourName(ink), next = FarmingInventoryOverlay.colourName(FarmingInventoryOverlay.NEXT);
+    for (TileObject o : plugin.highlightObjects()) parts.add(now + " " + objectName(o));
+    for (NPC n : plugin.highlightNpcs()) parts.add(now + " " + n.getName() + " (" + n.getId() + ")");
+    for (TileObject o : plugin.nextObjects()) parts.add(next + " " + objectName(o));
+    for (NPC n : plugin.nextNpcs()) parts.add(next + " " + n.getName() + " (" + n.getId() + ")");
+    List<WorldPoint> path = plugin.path();
+    if (!path.isEmpty()) {
+      WorldPoint end = path.get(path.size() - 1);
+      parts.add("path " + path.size() + " tiles to " + end.getX() + "," + end.getY());
+    }
+    plugin.noteHighlights("world", String.join(" · ", parts));
+  }
+
+  private String objectName(TileObject o) {
+    net.runelite.api.ObjectComposition c = client.getObjectDefinition(o.getId());
+    if (c != null && c.getImpostorIds() != null && c.getImpostor() != null) c = c.getImpostor();
+    WorldPoint at = o.getWorldLocation();
+    return (c == null ? "object" : c.getName()) + " (" + o.getId() + ") at " + at.getX() + "," + at.getY();
   }
 
   /**

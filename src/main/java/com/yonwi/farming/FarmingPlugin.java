@@ -82,6 +82,12 @@ public class FarmingPlugin extends Plugin {
     boolean carried = false;
     if (inv != null) for (Item item : inv.getItems()) carried |= pouch.contains(item.getId());
     if (!carried) return Collections.emptySet();
+    // A full pouch of this run's runes (e.g. 3 kinds when it needs 4): the rest go loose in the
+    // inventory, and the bank's kit filter already shows them unticked, so nothing to set up.
+    Set<Integer> needed = runesNeeded(), inPouch = new HashSet<>();
+    for (Map.Entry<Integer, Integer> rune : pouchRunes().entrySet())
+      if (rune.getValue() > 0) inPouch.add(rune.getKey());
+    if (inPouch.size() >= pouchKinds() && needed.containsAll(inPouch)) return Collections.emptySet();
     Set<Integer> shortRunes = new HashSet<>();
     for (String name : kitCounts.keySet()) {
       if (!name.endsWith(" rune")) continue;
@@ -89,6 +95,26 @@ public class FarmingPlugin extends Plugin {
       if (id > 0 && kitRemaining(id) > 0) shortRunes.add(id);
     }
     return shortRunes;
+  }
+
+  /** How many kinds of rune your pouch holds: 4 in a divine rune pouch, else 3. */
+  int pouchKinds() {
+    ItemContainer inv = client.getItemContainer(InventoryID.INV);
+    if (inv != null)
+      for (Item item : inv.getItems())
+        if (item.getId() == net.runelite.api.gameval.ItemID.DIVINE_RUNE_POUCH
+            || item.getId() == net.runelite.api.gameval.ItemID.DIVINE_RUNE_POUCH_TROUVER) return 4;
+    return 3;
+  }
+
+  /** What each overlay highlighted last, so the debug log gets a line only when it changes. */
+  private final Map<String, String> lastHighlights = new HashMap<>();
+
+  /** Debug: logs what an overlay highlights, and in which colour, whenever that changes. */
+  void noteHighlights(String overlay, String what) {
+    if (!config.debug() || what.equals(lastHighlights.get(overlay))) return;
+    lastHighlights.put(overlay, what);
+    debugLog("highlights (" + overlay + "): " + (what.isEmpty() ? "none" : what));
   }
 
   /** Rune item IDs the run needs, whether or not you have them yet. */

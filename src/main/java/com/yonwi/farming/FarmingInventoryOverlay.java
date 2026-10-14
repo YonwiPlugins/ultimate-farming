@@ -87,8 +87,68 @@ final class FarmingInventoryOverlay extends Overlay {
     setLayer(OverlayLayer.ABOVE_WIDGETS);
   }
 
+  /** What this frame highlighted, as {colour, what}, while the debug setting is on; else null. */
+  private static java.util.List<String[]> recording;
+
   @Override
   public Dimension render(Graphics2D g) {
+    recording = config.debug() ? new java.util.ArrayList<>() : null;
+    try {
+      return renderMarks(g);
+    } finally {
+      if (recording != null) {
+        // Grouped by colour, item IDs named: "blue [Rune pouch, Load] · orange [Harmony …]".
+        Map<String, Set<String>> byColour = new TreeMap<>();
+        for (String[] r : recording) {
+          String what = r[1];
+          if (what.startsWith("item ")) {
+            int id = Integer.parseInt(what.substring(5));
+            what = client.getItemDefinition(id).getName() + " (" + id + ")";
+          }
+          byColour.computeIfAbsent(r[0], k -> new TreeSet<>()).add(what);
+        }
+        StringBuilder line = new StringBuilder();
+        for (Map.Entry<String, Set<String>> e : byColour.entrySet())
+          line.append(line.length() > 0 ? " · " : "").append(e.getKey()).append(' ').append(e.getValue());
+        plugin.noteHighlights("interface", line.toString());
+        recording = null;
+      }
+    }
+  }
+
+  /** Debug: remembers one highlight of this frame. */
+  static void note(String what, Color color) {
+    if (recording != null) recording.add(new String[] {colourName(color), what});
+  }
+
+  static String colourName(Color c) {
+    if (c.equals(ITEM)) return "blue";
+    if (c.equals(TARGET)) return "light blue";
+    if (c.equals(NEXT)) return "orange";
+    return String.format("#%06x", c.getRGB() & 0xFFFFFF);
+  }
+
+  /** A widget in words: its item, text, option or ID. */
+  static String describe(Widget w) {
+    if (w.getItemId() > 0) return "item " + w.getItemId();
+    String text = w.getText() == null ? "" : Text.removeTags(w.getText()).trim();
+    if (!text.isEmpty()) return "'" + text + "'";
+    if (w.getActions() != null)
+      for (String a : w.getActions()) if (a != null && !a.isEmpty()) return "'" + Text.removeTags(a) + "'";
+    String name = w.getName() == null ? "" : Text.removeTags(w.getName()).trim();
+    if (!name.isEmpty()) return "'" + name + "'";
+    return "widget " + (w.getId() >>> 16) + "/" + (w.getId() & 0xFFFF);
+  }
+
+  /** Marks a widget, cut to what its parents show. */
+  private static void markVisible(Graphics2D g, Widget w, Color color) {
+    Rectangle visible = visibleBounds(w);
+    if (visible.isEmpty()) return;
+    note(describe(w), color);
+    draw(g, visible, color);
+  }
+
+  private Dimension renderMarks(Graphics2D g) {
     Guidance step = plugin.guide();
     if (client.getGameState() == GameState.LOGGED_IN && plugin.kitFilterOpen()) markBankCounts(g);
     // Spellbook switched: the magic cape goes back in the bank.
@@ -97,7 +157,7 @@ final class FarmingInventoryOverlay extends Overlay {
         && plugin.missingItems().contains(FarmingPanel.DEPOSIT_CAPE)) {
       Set<Integer> cape = FarmingPlugin.itemIds(Collections.singletonList("Magic cape"));
       for (Widget item : visibleChildren(InterfaceID.Bankside.ITEMS))
-        if (cape.contains(item.getItemId())) mark(g, item.getBounds(), ITEM);
+        if (cape.contains(item.getItemId())) mark(g, item, ITEM);
     }
     if (config.highlight() && step == null && client.getGameState() == GameState.LOGGED_IN) {
       Set<Integer> shortRunes = plugin.pouchShortfall();
@@ -269,16 +329,6 @@ final class FarmingInventoryOverlay extends Overlay {
     {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_J, InterfaceID.Bankside.RUNEPOUCH_LOAD_J},
   };
 
-  /** How many kinds of rune your pouch holds: 4 in a divine rune pouch, else 3. */
-  private int pouchKinds() {
-    ItemContainer inv = client.getItemContainer(InventoryID.INV);
-    if (inv != null)
-      for (Item item : inv.getItems())
-        if (item.getId() == ItemID.DIVINE_RUNE_POUCH || item.getId() == ItemID.DIVINE_RUNE_POUCH_TROUVER)
-          return 4;
-    return 3;
-  }
-
   /**
    * The rune pouch is missing runes the run needs: highlight the pouch (its Configure is the
    * left-click), then, in the pouch panel, the Load button of a saved loadout holding the run's
@@ -294,7 +344,7 @@ final class FarmingInventoryOverlay extends Overlay {
     if (panel != null && !panel.isHidden()) {
       // The loadout with the most of the run's runes (extras don't matter), as long as it has
       // all of them, or as many as the pouch holds (3, or 4 in a divine pouch).
-      int enough = Math.min(pouchKinds(), needed.size());
+      int enough = Math.min(plugin.pouchKinds(), needed.size());
       Widget best = null;
       int bestOverlap = 0;
       for (int[] loadout : LOADOUTS) {
@@ -309,11 +359,11 @@ final class FarmingInventoryOverlay extends Overlay {
         }
       }
       if (best != null && bestOverlap >= enough) {
-        mark(g, visibleBounds(best), ITEM);
+        markVisible(g, best, ITEM);
         plugin.setPouchHint(null);
       } else {
         for (Widget item : visibleChildren(InterfaceID.Bankside.ITEMS))
-          if (pouch.contains(item.getItemId())) mark(g, item.getBounds(), ITEM);
+          if (pouch.contains(item.getItemId())) mark(g, item, ITEM);
         plugin.setPouchHint("No saved loadout has this run's runes: put them in your pouch");
       }
       return;
@@ -336,7 +386,7 @@ final class FarmingInventoryOverlay extends Overlay {
         }
       }
       if (best != null && bestOverlap >= Math.min(3, needed.size())) {
-        mark(g, visibleBounds(best), ITEM);
+        markVisible(g, best, ITEM);
         plugin.setPouchHint(null);
       } else {
         // No saved loadout fits: point at the runes to put in by hand.
@@ -349,13 +399,13 @@ final class FarmingInventoryOverlay extends Overlay {
     // when it's full: a loadout swaps the run's runes in).
     plugin.setPouchHint("Configure your rune pouch for this run");
     for (Widget item : visibleChildren(InterfaceID.Bankside.ITEMS))
-      if (pouch.contains(item.getItemId())) mark(g, item.getBounds(), ITEM);
+      if (pouch.contains(item.getItemId())) mark(g, item, ITEM);
   }
 
   /** Highlights bank items with these IDs. */
   private void markBankItems(Graphics2D g, Set<Integer> ids) {
     for (Widget item : visibleChildren(InterfaceID.Bankmain.ITEMS))
-      if (ids.contains(item.getItemId())) mark(g, item.getBounds(), ITEM);
+      if (ids.contains(item.getItemId())) mark(g, item, ITEM);
   }
 
   /** The visible children of a container widget, or none. */
@@ -408,8 +458,7 @@ final class FarmingInventoryOverlay extends Overlay {
       int id = InterfaceID.FairyringsLog.class.getField(code).getInt(null);
       Widget entry = client.getWidget(id);
       if (entry == null || entry.isHidden()) return;
-      Rectangle visible = visibleBounds(entry);
-      if (!visible.isEmpty()) mark(g, visible, ITEM);
+      markVisible(g, entry, ITEM);
     } catch (ReflectiveOperationException ignored) {
       // No log entry for this code.
     }
@@ -457,7 +506,8 @@ final class FarmingInventoryOverlay extends Overlay {
   /** Highlights a widget in the given colour. */
   static void mark(Graphics2D g, Widget w, Color color) {
     if (w == null || w.isHidden()) return;
-    mark(g, w.getBounds(), color);
+    note(describe(w), color);
+    draw(g, w.getBounds(), color);
   }
 
   /** With {@code unnotedOnly}, noted copies aren't marked: for noting, they're already done. */
@@ -471,7 +521,7 @@ final class FarmingInventoryOverlay extends Overlay {
           && !item.isHidden()
           && item.getItemId() > 0
           && ids.contains(unnotedOnly ? item.getItemId() : unnoted(item.getItemId())))
-        mark(g, item.getBounds(), color);
+        mark(g, item, color);
   }
 
   /**
@@ -563,8 +613,7 @@ final class FarmingInventoryOverlay extends Overlay {
     if (w.getActions() != null) for (String a : w.getActions()) if (a != null) all.append(' ').append(a);
     String name = Text.removeTags(all.toString()).toLowerCase(Locale.ROOT);
     if (name.contains(place)) {
-      Rectangle visible = visibleBounds(w);
-      if (!visible.isEmpty()) mark(g, visible, ITEM);
+      markVisible(g, w, ITEM);
       return;
     }
     for (Widget[] kids :
@@ -576,8 +625,7 @@ final class FarmingInventoryOverlay extends Overlay {
     if (w == null || w.isHidden() || depth > 6) return;
     String text = w.getText() == null ? "" : Text.removeTags(w.getText()).toLowerCase(Locale.ROOT);
     if (!text.isEmpty() && text.contains(place)) {
-      Rectangle visible = visibleBounds(w);
-      if (!visible.isEmpty()) mark(g, visible, ITEM);
+      markVisible(g, w, ITEM);
       return;
     }
     for (Widget[] kids :
@@ -617,7 +665,7 @@ final class FarmingInventoryOverlay extends Overlay {
         if (icon.getActions() != null)
           for (String a : icon.getActions()) if (a != null) words.append(' ').append(a);
         if (words.toString().toLowerCase(Locale.ROOT).contains(site))
-          mark(g, icon.getBounds(), ITEM);
+          mark(g, icon, ITEM);
       }
     }
   }
@@ -646,11 +694,16 @@ final class FarmingInventoryOverlay extends Overlay {
 
   /** Bright outline with a 20% fill. */
   static void mark(Graphics2D g, Widget w) {
-    if (w == null || w.isHidden()) return;
-    mark(g, w.getBounds(), ITEM);
+    mark(g, w, ITEM);
   }
 
   static void mark(Graphics2D g, Shape shape, Color color) {
+    if (shape == null) return;
+    note("shape", color);
+    draw(g, shape, color);
+  }
+
+  private static void draw(Graphics2D g, Shape shape, Color color) {
     if (shape == null) return;
     g.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 51));
     g.fill(shape);
