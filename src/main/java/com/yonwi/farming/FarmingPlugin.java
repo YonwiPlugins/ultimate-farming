@@ -862,6 +862,12 @@ public class FarmingPlugin extends Plugin {
     // Every other step is read from what the patch is right now, not from what was clicked.
     TileObject patch = patchObject;
     if (patch == null) return;
+    // The game only sends a patch's state once you're in that patch's area. Until then it shows
+    // the last patch sharing its varbit (every ordinary tree patch shares one): from the house
+    // portal, Taverley showed Falador's new sapling. 10 tiles is inside every patch's area in
+    // RuneLite's FarmingWorld; the map square isn't (part of Catherby's fruit tree square sends
+    // the herb patch's state).
+    if (patch.getWorldLocation().distanceTo2D(here) > 10) return;
     ObjectComposition c = client.getObjectDefinition(patch.getId());
     if (c != null && c.getImpostorIds() != null) c = c.getImpostor();
     if (c == null || c.getName() == null) return;
@@ -900,13 +906,9 @@ public class FarmingPlugin extends Plugin {
         done = !pick && !clearDead;
         break;
       case "Check health":
-        // A grown tree without Check-health left. Not an empty patch: just after a teleport the
-        // patch can briefly read as empty, which skipped Taverley's health check.
-        // And it must be this crop's tree (e.g. "Magic tree"), not some other object nearby.
-        done =
-            !check
-                && !empty
-                && c.getName().toLowerCase(Locale.ROOT).contains(step.cropName.toLowerCase(Locale.ROOT));
+        // No Check-health left: checked, or nothing to check (empty, growing or dead). Any tree
+        // counts, not just the crop being planted, so switching crop doesn't hold the guide here.
+        done = !check;
         break;
       case "Clear":
         done = empty;
