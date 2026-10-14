@@ -2271,7 +2271,7 @@ public class FarmingPlugin extends Plugin {
 
   private static String noteOnWayInText(int free, Guidance step) {
     return "Note your herbs on the way: " + free + " free slots, this patch gives about "
-        + step.herbsPerPatch;
+        + step.herbsIfAlive;
   }
 
   private String noteAdvice(Guidance step, Player player, TileObject patch, NPC leprechaun) {
@@ -2311,7 +2311,9 @@ public class FarmingPlugin extends Plugin {
         herbs
             && (step.phase.equals("Travel") || step.phase.equals("Harvest"))
             && !started
-            && free < step.herbsPerPatch
+            // The same rule as noting before leaving: room for this patch's herbs if it's alive,
+            // with 2 to spare.
+            && free < step.herbsIfAlive + 2
             && at != null
             && at.getPlane() == here.getPlane()
             // In the patch's own area (RuneLite's farming regions for it), not just anywhere.

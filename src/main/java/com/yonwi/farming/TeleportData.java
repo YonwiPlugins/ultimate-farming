@@ -81,6 +81,8 @@ final class TeleportData {
                     Integer.parseInt(xyz[0]), Integer.parseInt(xyz[1]), Integer.parseInt(xyz[2]));
             String name =
                 norm(cell(cells, column, "Display info") + " " + cell(cells, column, "menuOption menuTarget objectID"));
+            // Deadman Mode's Trinket of fairies (straight to tool leprechauns) is never a route here.
+            if (name.contains("trinket of fairies")) continue;
             loaded.add(new Landing(at, name));
           } catch (NumberFormatException ignored) {
             // a malformed row
