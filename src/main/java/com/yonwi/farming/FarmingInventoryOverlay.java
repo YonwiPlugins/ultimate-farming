@@ -159,6 +159,8 @@ final class FarmingInventoryOverlay extends Overlay {
     if (plugin.selectedItem(relevant)) return null;
     // Spirit tree, portal nexus and jewellery box menus: highlight this route's destination.
     if (step.phase.equals("Travel")) markMenuChoice(g, step.travel);
+    // A charter ship's map: the X for this route's port (its tooltip names it, e.g. Corsair Cove).
+    if (step.phase.equals("Travel")) markCharterPort(g, step.travel);
     // The fairy ring's travel log, in the house too.
     if (step.phase.equals("Travel")) markFairyLog(g, step.travel);
     // A teleport's menu or map is open: the destination in it is the one thing to click now.
@@ -493,6 +495,30 @@ final class FarmingInventoryOverlay extends Overlay {
   }
 
   /** Marks the row whose text names the destination, searching nested widgets. */
+  private void markCharterPort(Graphics2D g, String travel) {
+    java.util.regex.Matcher to =
+        java.util.regex.Pattern.compile("charter to ([a-z' ]+?)(;|,| then|$)")
+            .matcher(travel.toLowerCase(Locale.ROOT));
+    if (!to.find()) return;
+    String port = to.group(1).trim();
+    Widget[] roots = client.getWidgetRoots();
+    if (roots != null) for (Widget root : roots) markNamed(g, root, port, 0);
+  }
+
+  /** Marks the widget whose name (its hover tooltip) names this place, searching nested widgets. */
+  private void markNamed(Graphics2D g, Widget w, String place, int depth) {
+    if (w == null || w.isHidden() || depth > 10) return;
+    String name = w.getName() == null ? "" : Text.removeTags(w.getName()).toLowerCase(Locale.ROOT);
+    if (name.contains(place)) {
+      Rectangle visible = visibleBounds(w);
+      if (!visible.isEmpty()) mark(g, visible, ITEM);
+      return;
+    }
+    for (Widget[] kids :
+        new Widget[][] {w.getStaticChildren(), w.getDynamicChildren(), w.getNestedChildren()})
+      if (kids != null) for (Widget k : kids) markNamed(g, k, place, depth + 1);
+  }
+
   private void markText(Graphics2D g, Widget w, String place, int depth) {
     if (w == null || w.isHidden() || depth > 6) return;
     String text = w.getText() == null ? "" : Text.removeTags(w.getText()).toLowerCase(Locale.ROOT);
