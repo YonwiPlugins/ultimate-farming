@@ -738,14 +738,37 @@ final class FarmingPanel extends PluginPanel {
         Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds % 3600 / 60, seconds % 60);
   }
 
+  /** The picture to show for a kit item: your best variant of it (e.g. your infernal axe). */
+  private int shownId(String name) {
+    return FarmingData.bestOwned(name, account == null ? null : account.owned);
+  }
+
+  /** Item names by ID, for a variant's tooltip ("Infernal axe" rather than "Axe"). */
+  private final Map<Integer, String> itemNames = new HashMap<>();
+
   private void icon(JLabel target, String name) {
-    int id = FarmingData.id(name);
+    int id = shownId(name);
     if (id == 0) {
       target.setText("•");
       target.setToolTipText(name);
       return;
     }
     target.setToolTipText(name);
+    // A specific variant (your axe, your whistle): name it.
+    if (id != FarmingData.id(name)) {
+      String known = itemNames.get(id);
+      if (known != null) target.setToolTipText(known);
+      else
+        clientThread.invoke(
+            () -> {
+              String real = items.getItemComposition(id).getName();
+              SwingUtilities.invokeLater(
+                  () -> {
+                    itemNames.put(id, real);
+                    target.setToolTipText(real);
+                  });
+            });
+    }
     String key = id + "|full";
     Icon cached = iconCache.get(key);
     if (cached != null) {
@@ -2462,7 +2485,7 @@ final class FarmingPanel extends PluginPanel {
 
   /** An item image scaled to fit, so it isn't cropped in small spaces. */
   private void smallIcon(JLabel target, String name, int w, int h) {
-    int id = FarmingData.id(name);
+    int id = shownId(name);
     if (id == 0) return;
     target.setToolTipText(name);
     // Already loaded once: set it now, so redrawing the tab doesn't make the pictures flicker.

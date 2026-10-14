@@ -407,6 +407,18 @@ PATCHES.add(new Patch("herbguild", "Farming Guild", "herb"));
     return firstTick + (g[1] - 2) * tick;
   }
 
+  /**
+   * The variant of this item to show: the first in its best-first list that you own (bank,
+   * inventory or worn), e.g. your infernal axe. If you own none: a bronze axe for "Axe" (the one to
+   * get), otherwise the usual picture.
+   */
+  static int bestOwned(String name, Set<Integer> owned) {
+    int[] ids = IDS.get(name);
+    if (ids != null && owned != null) for (int id : ids) if (owned.contains(id)) return id;
+    if (name.equals("Axe")) return ItemID.BRONZE_AXE;
+    return id(name);
+  }
+
   static int id(String name) {
     if (name.equals("Farming cape")) return ItemID.SKILLCAPE_FARMING_TRIMMED;
     if (name.equals("Construction cape")) return ItemID.SKILLCAPE_CONSTRUCTION_TRIMMED;

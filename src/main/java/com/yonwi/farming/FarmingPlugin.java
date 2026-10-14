@@ -178,8 +178,12 @@ public class FarmingPlugin extends Plugin {
   private int[] kitLayout() {
     Set<Integer> have = new HashSet<>();
     if (bank != null) have.addAll(bank);
-    ItemContainer inv = client.getItemContainer(InventoryID.INV);
-    if (inv != null) for (Item i : inv.getItems()) have.add(itemManager.canonicalize(i.getId()));
+    // Inventory and worn too: an axe or whistle you're wearing is one you own.
+    for (int container : new int[] {InventoryID.INV, InventoryID.WORN}) {
+      ItemContainer items = client.getItemContainer(container);
+      if (items != null)
+        for (Item i : items.getItems()) if (i.getId() > 0) have.add(itemManager.canonicalize(i.getId()));
+    }
     List<Integer> slots = new ArrayList<>(), seeds = new ArrayList<>();
     Set<Integer> hidden = new HashSet<>();
     List<String> names = new ArrayList<>(kitOrder);
@@ -187,12 +191,8 @@ public class FarmingPlugin extends Plugin {
     for (String name : names) {
       int[] ids = FarmingData.IDS.getOrDefault(name, new int[0]);
       if (ids.length == 0) continue;
-      int chosen = FarmingData.id(name) > 0 ? FarmingData.id(name) : ids[0];
-      for (int id : ids)
-        if (have.contains(id)) {
-          chosen = id;
-          break;
-        }
+      int chosen = FarmingData.bestOwned(name, have);
+      if (chosen <= 0) chosen = ids[0];
       boolean seed = name.endsWith(" seed") || name.endsWith(" sapling");
       if (!slots.contains(chosen) && !seeds.contains(chosen)) (seed ? seeds : slots).add(chosen);
       // One quetzal whistle is enough: show the best you own and hide the rest (IDS lists the
