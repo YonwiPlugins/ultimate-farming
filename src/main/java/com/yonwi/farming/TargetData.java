@@ -60,6 +60,8 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
     PATCH_POINTS.put("lletya", new WorldPoint(2347, 3162, 0));
     PATCH_POINTS.put("guildfruit", new WorldPoint(1242, 3758, 0));
     PATCH_POINTS.put("kastori", new WorldPoint(1350, 3057, 0));
+    // Locus Oasis hardwood patch: 3×3 from 1686,2971 to 1688,2973 (checked in-game).
+    PATCH_POINTS.put("locus", new WorldPoint(1687, 2972, 0));
     PATCH_POINTS.put("calquat", new WorldPoint(2795, 3102, 0));
     PATCH_POINTS.put("kastoricalquat", new WorldPoint(1366, 3033, 0));
     // Summer Shore (Great Conch) Calquat patch.
@@ -90,7 +92,7 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
     GARDENERS.put("fossil1", NpcID.FOSSIL_SQUIRREL_GARDENER1);
     GARDENERS.put("fossil2", NpcID.FOSSIL_SQUIRREL_GARDENER2);
     GARDENERS.put("fossil3", NpcID.FOSSIL_SQUIRREL_GARDENER3);
-    GARDENERS.put("locus", NpcID.FROG_QUEST_MARCELLUS);
+    GARDENERS.put("locus", 12936); // Marcellus at the patch (ID read in-game with Developer Tools)
     GARDENERS.put("anglers", NpcID.FARMING_GARDENER_HARDWOOD_TREE_5);
   }
 

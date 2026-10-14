@@ -11,6 +11,10 @@ Agility shortcut tables (`sp-transports.tsv`, `sp-agility_shortcuts.tsv`), and t
 layout and movement rules from SplitFlagMap and CollisionMap; the fairy ring travel-log scrolling in
 `FarmingPlugin.onPostClientTick` follows ShortestPathPlugin.scrollFairyRingPanel. All from
 https://github.com/Skretzo/shortest-path (commit 7c2a8115e69c9218c922d72b92433949cd0994b9).
+Teleport landing spots (`TeleportData.java`) come from the same commit's teleport tables:
+`sp-teleportation_items.tsv`, `sp-teleportation_spells.tsv`, `sp-teleportation_portals_poh.tsv`,
+`sp-teleportation_portals.tsv`, `sp-teleportation_boxes.tsv`, `sp-fairy_rings.tsv`,
+`sp-spirit_trees.tsv`, `sp-quetzal_whistle.tsv` and `sp-quetzals.tsv`.
 
 BSD 2-Clause License. All rights reserved.
 

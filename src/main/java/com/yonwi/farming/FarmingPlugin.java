@@ -767,10 +767,19 @@ public class FarmingPlugin extends Plugin {
           before != null
               && (before.getPlane() != here.getPlane() || before.distanceTo(here) > 30)
               && !inHouse;
-      // Only a jump right after using this step's own transport counts (its item or spell, a
-      // destination you chose, the nexus, ring, tree, box or a destination portal). Walking out
-      // of the house's exit portal, or a teleport somewhere else, leaves the step as it was.
+      // A teleport only counts if it lands where this step's route goes: in the patch's own area,
+      // or within 10 tiles of where its teleport lands (Shortest Path's teleport tables). That
+      // works however the destination was picked (mouse or number key). Anything else (another
+      // destination, item or spell, or walking out of the house) leaves the step as it was. For a
+      // route with no known landing spot, it falls back to a teleport just after using its transport.
       boolean fromStep = client.getTickCount() - stepTransportAt <= 20;
+      boolean rightPlace =
+          inPatchArea(step.patchId, here)
+              || (TeleportData.landingsFor(step.travel).isEmpty()
+                  ? fromStep
+                  : TeleportData.landedFor(step.travel, here, 10));
+      if (teleported) event((rightPlace ? "landed right: " : "landed elsewhere: ") + here.getX() + "," + here.getY());
+      fromStep = rightPlace;
       if (teleported && !fromStep && wasInHouse) leftHousePatch = step.patchId;
       // A second leg after the teleport (guide, boat, quetzal...) means only arriving counts.
       if (!step.patchId.equals(jumpPatch)) {
@@ -1061,6 +1070,17 @@ public class FarmingPlugin extends Plugin {
     String after = (arrow < 0 ? travel : travel.substring(arrow + 1)).toLowerCase(Locale.ROOT);
     for (String leg : SECOND_LEGS) if (after.contains(leg)) return true;
     return false;
+  }
+
+  /**
+   * In the patch's own area: RuneLite's farming regions for a herb patch, or the 64×64 map region
+   * holding a tree patch.
+   */
+  private static boolean inPatchArea(String patchId, WorldPoint here) {
+    Set<Integer> regions = TargetData.HERB_REGIONS.get(patchId);
+    if (regions != null) return regions.contains(here.getRegionID());
+    WorldPoint at = TargetData.PATCH_POINTS.get(patchId);
+    return at != null && at.getPlane() == here.getPlane() && at.getRegionID() == here.getRegionID();
   }
 
   /** In the patch's herb region, or its gardener is anywhere in the loaded scene. */
