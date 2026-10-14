@@ -151,6 +151,8 @@ final class WorldPath {
     try {
       loadLinks("sp-transports.tsv", loadedLinks);
       loadLinks("sp-agility_shortcuts.tsv", loadedLinks);
+      // Shortcuts Shortest Path doesn't have yet (e.g. the Summer Shore rocks), in the same format.
+      loadLinks("extra-shortcuts.tsv", loadedLinks);
     } catch (IOException | RuntimeException ignored) {
       // Without shortcuts the map still works, just with fewer ways through.
     }

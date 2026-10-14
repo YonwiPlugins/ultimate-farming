@@ -1,0 +1,4 @@
+# Origin	Destination	menuOption menuTarget objectID	Skills	Items	Varbits	VarPlayers	Duration	Quests
+# Our own additions, missing from Shortest Path. Summer Shore rocks on the Great Conch (wiki: 50 Agility, from the CJQ fairy ring).
+3180 2435 0	3180 2431 0	Climb Rocks 0	50 Agility				4	
+3180 2431 0	3180 2435 0	Climb Rocks 0	50 Agility				4	
