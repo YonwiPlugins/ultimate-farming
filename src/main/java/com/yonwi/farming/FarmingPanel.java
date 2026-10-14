@@ -1874,8 +1874,10 @@ final class FarmingPanel extends PluginPanel {
         label(
             "<html><div style=\"width:" + CARD_TEXT + "px\">"
                 + html(guide.destination)
-                + " · "
-                + html(guide.labels.get(guide.phaseIndex))
+                // Travelling: the grey line below already says how to get there.
+                + (guide.phase.equals("Travel")
+                    ? ""
+                    : " · " + html(guide.labels.get(guide.phaseIndex)))
                 + "</div></html>");
     heading.setFont(Style.bold());
     guidanceControls.add(heading);
