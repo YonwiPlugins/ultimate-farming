@@ -1341,6 +1341,14 @@ public class FarmingPlugin extends Plugin {
       wanted.add(new String[] {"fairy", "last-destination (" + code.toLowerCase(Locale.ROOT)});
       wanted.add(new String[] {"fairy", "configure"});
     }
+    // A charter ship (e.g. Catherby to Corsair Cove): the crew's "Charter-to <place>" when it's
+    // already this destination (it remembers your last one), otherwise plain "Charter".
+    if (travel.contains("charter")) {
+      java.util.regex.Matcher to =
+          java.util.regex.Pattern.compile("charter to ([a-z' ]+?)(;|,| then|$)").matcher(travel);
+      if (to.find()) wanted.add(new String[] {"trader crew", "charter-to " + to.group(1).trim()});
+      wanted.add(new String[] {"trader crew", "charter"});
+    }
     if (travel.contains("spirit tree")) {
       wanted.add(new String[] {"spiritual fairy tree", "tree"});
       wanted.add(new String[] {"spirit tree", "travel"});
@@ -1405,7 +1413,7 @@ public class FarmingPlugin extends Plugin {
         MenuEntry entry = entries[i];
         String option = Text.removeTags(entry.getOption()).toLowerCase(Locale.ROOT);
         String target = Text.removeTags(entry.getTarget()).toLowerCase(Locale.ROOT);
-        boolean exact = want[1].equals("teleport") || want[1].equals("tree");
+        boolean exact = want[1].equals("teleport") || want[1].equals("tree") || want[1].equals("charter");
         if (!target.contains(want[0])
             || !(exact ? option.equals(want[1]) : option.contains(want[1]))) continue;
         moveToLeftClick(entries, entry);
@@ -1860,6 +1868,13 @@ public class FarmingPlugin extends Plugin {
     if (current instanceof TileObject)
       objectHighlights = Collections.singletonList((TileObject) current);
     if (current instanceof NPC) npcHighlights = Collections.singletonList((NPC) current);
+    // Every crewmember of the charter ship, not just the nearest.
+    if (current instanceof NPC && charterCrew.contains(current)) {
+      List<NPC> crew = new ArrayList<>(charterCrew);
+      crew.remove(current);
+      crew.add(0, (NPC) current);
+      npcHighlights = crew;
+    }
     // The next step's target is only shown in orange when it isn't already the current one.
     if (next != current && next instanceof TileObject)
       nextObjects = Collections.singletonList((TileObject) next);
@@ -2170,6 +2185,9 @@ public class FarmingPlugin extends Plugin {
 
   private String jumpPatch;
 
+  /** The charter ship's crew in view on a charter leg, to highlight them all. */
+  private List<NPC> charterCrew = Collections.emptyList();
+
   /** This patch's trip has teleported at least once (so walking to the patch is what's left). */
   private volatile boolean teleportedThisLeg;
 
@@ -2201,6 +2219,24 @@ public class FarmingPlugin extends Plugin {
         outsidePortalShown = true;
         return portal;
       }
+    }
+    // A charter leg (e.g. Catherby to Corsair Cove): the ship's Trader Crewmembers on the dock.
+    if (travel.contains("charter") && !house) {
+      NPC crew = null;
+      int closest = 25;
+      List<NPC> all = new ArrayList<>();
+      for (NPC n : sceneNpcs) {
+        if (n.getName() == null || !n.getName().equalsIgnoreCase("trader crewmember")) continue;
+        int d = n.getWorldLocation().distanceTo(player.getWorldLocation());
+        if (d >= 25) continue;
+        all.add(n);
+        if (d < closest) {
+          crew = n;
+          closest = d;
+        }
+      }
+      charterCrew = all; // all of them are highlighted; the nearest leads the path
+      if (crew != null) return crew;
     }
     if (jumped && !travel.contains("elkoy")) return null;
     // Tree Gnome Village: squeeze through the loose railing, then follow Elkoy through the maze.
