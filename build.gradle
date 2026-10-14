@@ -28,7 +28,7 @@ dependencies {
 }
 
 group = 'com.yonwi.farming'
-version = '0.42.0'
+version = '0.43.0'
 
 tasks.withType(JavaCompile).configureEach {
 	options.encoding = 'UTF-8'

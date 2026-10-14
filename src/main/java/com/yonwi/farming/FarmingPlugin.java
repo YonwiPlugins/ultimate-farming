@@ -1713,7 +1713,7 @@ public class FarmingPlugin extends Plugin {
     if (next != current && next instanceof TileObject)
       nextObjects = Collections.singletonList((TileObject) next);
     if (next != current && next instanceof NPC) nextNpcs = Collections.singletonList((NPC) next);
-    noteAdvice = noteAdvice(step, player, patch);
+    noteAdvice = noteAdvice(step, player, patch, leprechaun);
     // When noting is advised, the leprechaun is what to click.
     if (noteAdvice != null && leprechaun != null) {
       // Noting comes first: just the leprechaun (herbs, then him), nothing else lit up.
@@ -1885,7 +1885,15 @@ public class FarmingPlugin extends Plugin {
   }
 
   /** Notes only when the inventory fills up while there are still herbs to pick. */
-  private String noteAdvice(Guidance step, Player player, TileObject patch) {
+  /** The patch whose leprechaun you've been told to note at on the way in, or null. */
+  private String noteOnWayIn;
+
+  private static String noteOnWayInText(int free, Guidance step) {
+    return "Note your herbs on the way: " + free + " free slots, this patch gives about "
+        + step.herbsPerPatch;
+  }
+
+  private String noteAdvice(Guidance step, Player player, TileObject patch, NPC leprechaun) {
     ItemContainer inventory = client.getItemContainer(InventoryID.INV);
     if (inventory == null) return null;
     int used = 0, grimy = 0;
@@ -1895,11 +1903,29 @@ public class FarmingPlugin extends Plugin {
         if (GRIMY.contains(item.getId())) grimy++;
       }
     int free = 28 - used;
-    if (grimy == 0) return null;
-    // Noting only ever happens when the inventory fills up while picking: pick until full, note
-    // at that patch's leprechaun, then finish. Nothing is noted ahead of time, so the advice never
-    // springs up as you're about to teleport, and you never walk past the patch to note first.
-    if (!step.kind.equals("herb") || !arrived(step.patchId, player)) return null;
+    if (grimy == 0 || !step.kind.equals("herb")) return null;
+    boolean started = step.patchId.equals(pickingPatch);
+    // On the way in, when this patch's herbs won't fit and the leprechaun comes before the patch
+    // (e.g. Falador): note as you pass him. Once advised it stays until you've noted or started
+    // picking. When he's past the patch (e.g. Catherby), pick until full instead (below).
+    WorldPoint at = TargetData.PATCH_POINTS.get(step.patchId);
+    WorldPoint here = player.getWorldLocation();
+    boolean approaching =
+        (step.phase.equals("Travel") || step.phase.equals("Harvest"))
+            && !started
+            && free < step.herbsPerPatch
+            && at != null
+            && at.getPlane() == here.getPlane()
+            && at.distanceTo(here) <= 25;
+    if (!approaching) noteOnWayIn = null;
+    else if (step.patchId.equals(noteOnWayIn)) return noteOnWayInText(free, step);
+    else if (leprechaun != null && leprechaun.getWorldLocation().distanceTo(here) < at.distanceTo(here)) {
+      noteOnWayIn = step.patchId;
+      return noteOnWayInText(free, step);
+    }
+    // Otherwise noting only happens when the inventory fills up while picking: pick until full,
+    // note at that patch's leprechaun, then finish.
+    if (!arrived(step.patchId, player)) return null;
     boolean harvesting = step.phase.equals("Harvest");
     boolean stillToPick = false;
     if (patch != null) {
