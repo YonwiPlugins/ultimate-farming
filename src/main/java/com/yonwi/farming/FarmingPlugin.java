@@ -294,8 +294,16 @@ public class FarmingPlugin extends Plugin {
   private NPC debugGardener;
   private final java.util.Deque<String> events = new ArrayDeque<>();
 
+  private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(FarmingPlugin.class);
+
+  /** With the debug setting on: a line in RuneLite's client.log, prefixed "[UF]". */
+  private void debugLog(String text) {
+    if (config.debug()) LOG.info("[UF] {}", text);
+  }
+
   /** Remembers the last few detected events for the debug box. */
   private void event(String text) {
+    debugLog("event: " + text);
     String line = text.length() > 40 ? text.substring(0, 40) + "…" : text;
     if (line.equals(events.peekFirst())) return;
     events.addFirst(line);
@@ -732,6 +740,7 @@ public class FarmingPlugin extends Plugin {
     refreshHighlights();
     watchGardenerDialog();
     checkProgress();
+    if (config.debug()) debugScan();
     // Nothing guided (between runs, bank first): don't leave a stale Shortest Path route.
     if (guidance == null) {
       shortestPath(null);
@@ -2341,8 +2350,108 @@ public class FarmingPlugin extends Plugin {
 
   private String railingPatch;
 
+  /** Interfaces open last debug scan, and widgets/objects already logged, to log each once. */
+  private Set<Integer> debugGroups = new HashSet<>();
+
+  private final Set<String> debugSeen = new HashSet<>();
+
+  /**
+   * Debug only, into client.log: which interfaces open and close; every widget naming the
+   * route's charter port (or any charter port) in its name, text or actions; and boats, crew and
+   * ships within 15 tiles with their IDs and tiles.
+   */
+  private void debugScan() {
+    if (client.getGameState() != GameState.LOGGED_IN) return;
+    Widget[] roots = client.getWidgetRoots();
+    Set<Integer> groups = new HashSet<>();
+    if (roots != null) for (Widget root : roots) if (root != null) groups.add(root.getId() >>> 16);
+    for (int g : groups) if (!debugGroups.contains(g)) debugLog("interface opened: group " + g);
+    for (int g : debugGroups) if (!groups.contains(g)) debugLog("interface closed: group " + g);
+    debugGroups = groups;
+    Guidance step = guidance;
+    List<String> words = new ArrayList<>(DEBUG_PORTS);
+    if (step != null) {
+      java.util.regex.Matcher to =
+          java.util.regex.Pattern.compile("charter to ([a-z' ]+?)(;|,| then|$)")
+              .matcher(step.travel.toLowerCase(Locale.ROOT));
+      if (to.find()) words.add(0, to.group(1).trim());
+    }
+    if (roots != null) for (Widget root : roots) debugWidgets(root, words, 0);
+    Player player = client.getLocalPlayer();
+    if (player == null || client.getTickCount() % 5 != 0) return;
+    WorldPoint here = player.getWorldLocation();
+    for (NPC n : sceneNpcs) {
+      String name = n.getName() == null ? "" : n.getName().toLowerCase(Locale.ROOT);
+      if (n.getWorldLocation().distanceTo(here) > 15 || !debugThing(name)) continue;
+      WorldPoint at = n.getWorldLocation();
+      String line = "npc " + n.getName() + " id " + n.getId() + " at " + at.getX() + "," + at.getY() + "," + at.getPlane();
+      if (debugSeen.add(line)) debugLog(line);
+    }
+    Tile[][][] tiles = client.getTopLevelWorldView().getScene().getTiles();
+    int plane = client.getTopLevelWorldView().getPlane();
+    for (Tile[] column : tiles[plane])
+      for (Tile tile : column) {
+        if (tile == null || tile.getWorldLocation().distanceTo(here) > 15) continue;
+        List<TileObject> objects = new ArrayList<>();
+        objects.add(tile.getGroundObject());
+        objects.add(tile.getDecorativeObject());
+        objects.add(tile.getWallObject());
+        objects.addAll(Arrays.asList(tile.getGameObjects()));
+        for (TileObject o : objects) {
+          if (o == null) continue;
+          ObjectComposition c = client.getObjectDefinition(o.getId());
+          if (c != null && c.getImpostorIds() != null && c.getImpostor() != null) c = c.getImpostor();
+          if (c == null || c.getName() == null || !debugThing(c.getName().toLowerCase(Locale.ROOT)))
+            continue;
+          WorldPoint at = o.getWorldLocation();
+          String line =
+              "object " + c.getName() + " id " + o.getId() + " at " + at.getX() + "," + at.getY() + ","
+                  + at.getPlane() + " actions " + Arrays.toString(c.getActions());
+          if (debugSeen.add(line)) debugLog(line);
+        }
+      }
+  }
+
+  /** Charter ports, to find them on the charter map and list whatever the route. */
+  private static final List<String> DEBUG_PORTS =
+      Arrays.asList(
+          "corsair", "catherby", "port sarim", "brimhaven", "musa point", "port khazard",
+          "port phasmatys", "shipyard", "port tyras", "prifddinas", "piscarilius", "anglers");
+
+  private static boolean debugThing(String name) {
+    for (String w : new String[] {"boat", "row", "crew", "ship", "charter", "captain", "sail", "angler"})
+      if (name.contains(w)) return true;
+    return false;
+  }
+
+  private void debugWidgets(Widget w, List<String> words, int depth) {
+    if (w == null || w.isHidden() || depth > 12) return;
+    StringBuilder all = new StringBuilder();
+    if (w.getName() != null) all.append(w.getName()).append(' ');
+    if (w.getText() != null) all.append(w.getText()).append(' ');
+    if (w.getActions() != null) for (String a : w.getActions()) if (a != null) all.append(a).append(' ');
+    String text = Text.removeTags(all.toString()).toLowerCase(Locale.ROOT);
+    for (String word : words)
+      if (text.contains(word)) {
+        String line =
+            "widget group " + (w.getId() >>> 16) + " child " + (w.getId() & 0xFFFF) + " index "
+                + w.getIndex() + " type " + w.getType() + " name '" + Text.removeTags(String.valueOf(w.getName()))
+                + "' text '" + Text.removeTags(String.valueOf(w.getText())) + "' actions "
+                + Arrays.toString(w.getActions()) + " bounds " + w.getBounds();
+        if (debugSeen.add(line)) debugLog(line);
+        break;
+      }
+    for (Widget[] kids : new Widget[][] {w.getStaticChildren(), w.getDynamicChildren(), w.getNestedChildren()})
+      if (kids != null) for (Widget k : kids) debugWidgets(k, words, depth + 1);
+  }
+
   @Subscribe
   public void onMenuOptionClicked(MenuOptionClicked e) {
+    debugLog(
+        "click '" + Text.removeTags(e.getMenuOption()) + "' on '" + Text.removeTags(e.getMenuTarget())
+            + "' action " + e.getMenuAction() + " id " + e.getId() + " param0 " + e.getParam0()
+            + " param1 " + e.getParam1() + " (group " + (e.getParam1() >>> 16) + " child "
+            + (e.getParam1() & 0xFFFF) + ") item " + e.getItemId());
     String option = Text.removeTags(e.getMenuOption()).toLowerCase(Locale.ROOT);
     String target = Text.removeTags(e.getMenuTarget()).toLowerCase(Locale.ROOT);
     // The magic cape's Spellbook option: a change of spellbook soon after counts as one of the
