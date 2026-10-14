@@ -2531,6 +2531,19 @@ public class FarmingPlugin extends Plugin {
     Player player = client.getLocalPlayer();
     if (player == null || client.getTickCount() % 5 != 0) return;
     WorldPoint here = player.getWorldLocation();
+    // Every tool leprechaun in the loaded area, wherever you are, with the herb patches whose
+    // area it's in: their tiles decide where noting is the shorter walk.
+    for (NPC n : sceneNpcs) {
+      if (n.getName() == null || !n.getName().toLowerCase(Locale.ROOT).contains("leprechaun")) continue;
+      WorldPoint at = n.getWorldLocation();
+      List<String> patches = new ArrayList<>();
+      for (Map.Entry<String, Set<Integer>> e : TargetData.HERB_REGIONS.entrySet())
+        if (e.getValue().contains(at.getRegionID())) patches.add(e.getKey());
+      String line =
+          "leprechaun " + n.getName() + " at " + at.getX() + "," + at.getY() + "," + at.getPlane()
+              + " region " + at.getRegionID() + " herb patches " + patches;
+      if (debugSeen.add(line)) debugLog(line);
+    }
     for (NPC n : sceneNpcs) {
       String name = n.getName() == null ? "" : n.getName().toLowerCase(Locale.ROOT);
       if (n.getWorldLocation().distanceTo(here) > 15 || !debugThing(name)) continue;
