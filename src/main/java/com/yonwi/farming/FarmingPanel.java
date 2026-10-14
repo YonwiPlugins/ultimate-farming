@@ -22,8 +22,8 @@ final class FarmingPanel extends PluginPanel {
   static final String GROUP = "yonwi-farming-companion";
   /** Wrapping width for text inside a card, leaving a safe gap before the scrollbar. */
   private static final int CARD_TEXT = 140;
-  /** Where players register interest in online run-time leaderboards. */
-  private static final String LEADERBOARD_URL = "https://osrs.nedtelfer.com/ultimate-farming/leaderboards";
+  /** Google Form where players register interest in online run-time leaderboards. */
+  private static final String LEADERBOARD_URL = "https://forms.gle/hVgujVaFM8fdv3uaA";
   private static final Color BG = Style.BG,
       INK = Style.INK,
       MUTED = Style.MUTED,
@@ -2205,6 +2205,7 @@ final class FarmingPanel extends PluginPanel {
 
   private void renderBests() {
     bestPage.removeAll();
+    addLeaderboardBanner();
     // One table per run type (e.g. "herb", "tree + fruit"), herb runs first.
     Map<String, List<RunRecord>> groups =
         new TreeMap<>(
@@ -2279,15 +2280,6 @@ final class FarmingPanel extends PluginPanel {
       }
       addCard(bestPage, card);
     }
-    // Online leaderboards don't exist yet: this just opens a web page to register interest. It's
-    // a link opened in your browser, so the plugin itself sends nothing anywhere.
-    JButton leaderboard = new JButton("Online leaderboards? Register interest");
-    leaderboard.setFont(Style.small());
-    leaderboard.setToolTipText("Opens a page in your browser");
-    leaderboard.setAlignmentX(Component.LEFT_ALIGNMENT);
-    leaderboard.addActionListener(e -> LinkBrowser.browse(LEADERBOARD_URL));
-    bestPage.add(Box.createVerticalStrut(4));
-    bestPage.add(leaderboard);
     bestPage.add(Box.createVerticalGlue());
     bestPage.revalidate();
     bestPage.repaint();
@@ -2534,6 +2526,43 @@ final class FarmingPanel extends PluginPanel {
 
   /** Records tables expanded past the "Records rows shown" limit. */
   private final Set<String> expandedTables = new HashSet<>();
+
+  /**
+   * At the top of Records until dismissed: register interest in online leaderboards. It opens a
+   * Google Form in your browser, so the plugin itself sends nothing anywhere.
+   */
+  private void addLeaderboardBanner() {
+    if ("true".equals(config.getConfiguration(GROUP, "leaderboardDismissed"))) return;
+    JPanel banner = Style.card();
+    JPanel top = new JPanel(new BorderLayout(4, 0));
+    top.setOpaque(false);
+    JLabel text =
+        label(
+            "<html><div style=\"width:" + (CARD_TEXT - 20) + "px\">"
+                + "Want online leaderboards for run times?</div></html>");
+    text.setFont(Style.small());
+    top.add(text, BorderLayout.CENTER);
+    JButton close =
+        iconButton(
+            "✕",
+            "Hide this",
+            MUTED,
+            () -> {
+              config.setConfiguration(GROUP, "leaderboardDismissed", "true");
+              renderBests();
+            });
+    close.setFont(Style.small());
+    top.add(close, BorderLayout.EAST);
+    top.setAlignmentX(Component.LEFT_ALIGNMENT);
+    banner.add(top);
+    banner.add(Box.createVerticalStrut(6));
+    JButton register = Style.primary("Register interest", null);
+    register.setToolTipText("Opens a Google Form in your browser");
+    register.setAlignmentX(Component.LEFT_ALIGNMENT);
+    register.addActionListener(e -> LinkBrowser.browse(LEADERBOARD_URL));
+    banner.add(register);
+    addCard(bestPage, banner);
+  }
 
   /** Rows per Records table before "Show more" (the plugin's config, default 10). */
   private int recordsShown() {
