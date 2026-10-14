@@ -473,9 +473,12 @@ public class FarmingPlugin extends Plugin {
     // Just used on the patch (or NPC) for this step: it stays "selected" while you walk over, so
     // it doesn't light up again until the step finishes (or ~6 seconds pass with nothing).
     Guidance step = guidance;
+    // Only the step's own item (seed, sapling, compost): herbs used on a leprechaun mustn't hide
+    // the next teleport. (Unknown item: as before.)
     if (step != null
         && (step.patchId + step.phase).equals(usedOnStep)
-        && client.getTickCount() - usedOnTick <= 10) return true;
+        && client.getTickCount() - usedOnTick <= 10
+        && (usedItem < 0 || ids.contains(usedItem))) return true;
     if (!client.isWidgetSelected()) return false;
     Widget selected = client.getSelectedWidget();
     return selected != null && ids.contains(selected.getItemId());
@@ -485,6 +488,9 @@ public class FarmingPlugin extends Plugin {
   private int usedOnTick = -100;
 
   private String usedOnStep;
+
+  /** The item last used on an object or NPC, or -1 if not known. */
+  private int usedItem = -1;
 
   List<String> missingItems() {
     return missing;
@@ -2860,6 +2866,9 @@ public class FarmingPlugin extends Plugin {
         || e.getMenuAction() == MenuAction.WIDGET_TARGET_ON_NPC) {
       usedOnTick = client.getTickCount();
       usedOnStep = step.patchId + step.phase;
+      Widget held = client.getSelectedWidget();
+      usedItem = held == null || held.getItemId() <= 0 ? -1 : held.getItemId();
+      debugLog("used item " + usedItem + " on step " + usedOnStep);
     }
     // Checking a tree at another route patch moves the guide there (you've skipped ahead).
     if (option.equals("check-health")) patchAction("Check health", null);
