@@ -22,6 +22,8 @@ final class Guidance {
   int herbsPerPatch = 8;
   /** The next patch's teleport item(s), shown in orange during this patch's last step. */
   List<String> nextTravelItems = Collections.emptyList();
+  /** The crop growing here, e.g. "Magic", to recognise its tree. */
+  String cropName = "";
   /** Dead herbs here should get Resurrect Crops before anything else. */
   boolean resurrect;
   /** The patch after this one and how to get there, for the "Next up" line; null at the end. */
@@ -45,6 +47,7 @@ final class Guidance {
     spell = spell(s.travel);
     for (String p : phases) labels.add(label(p, s, setup));
     Crop crop = setup.crop(kind);
+    if (crop != null && crop.name != null) cropName = crop.name;
     items = new ArrayList<>();
     switch (phase) {
       case "Travel":

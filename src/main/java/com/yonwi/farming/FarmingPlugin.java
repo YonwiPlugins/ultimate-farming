@@ -539,6 +539,7 @@ public class FarmingPlugin extends Plugin {
       scanDue = true;
     } else if (e.getGameState() == GameState.LOADING
         || e.getGameState() == GameState.LOGIN_SCREEN) {
+      loadedAtTick = client.getTickCount();
       if (e.getGameState() == GameState.LOGIN_SCREEN) {
         bank = null;
         grimyCount = -1;
@@ -722,7 +723,9 @@ public class FarmingPlugin extends Plugin {
       if (!step.patchId.equals(jumpPatch)) {
         jumpPatch = step.patchId;
         jumped = false;
+        teleportedThisLeg = false;
       }
+      if (teleported) teleportedThisLeg = true;
       // After the teleport out (e.g. through the fairy ring), the ring or tree is no longer the
       // thing to click: the route to the patch is. Only a jump right after using a fairy ring,
       // spirit tree, portal or box counts: popping out to the bank and back mustn't lose the
@@ -778,7 +781,13 @@ public class FarmingPlugin extends Plugin {
         done = !pick && !clearDead;
         break;
       case "Check health":
-        done = !check;
+        // A grown tree without Check-health left. Not an empty patch: just after a teleport the
+        // patch can briefly read as empty, which skipped Taverley's health check.
+        // And it must be this crop's tree (e.g. "Magic tree"), not some other object nearby.
+        done =
+            !check
+                && !empty
+                && c.getName().toLowerCase(Locale.ROOT).contains(step.cropName.toLowerCase(Locale.ROOT));
         break;
       case "Clear":
         done = empty;
@@ -795,10 +804,13 @@ public class FarmingPlugin extends Plugin {
     String reading = step.patchId + step.phase + patch.getWorldLocation() + c.getId() + done;
     readingTicks = reading.equals(lastReading) ? readingTicks + 1 : 0;
     lastReading = reading;
-    if (done && readingTicks >= 1) phaseDone(step);
+    // Straight away normally; two matching ticks just after a scene load.
+    if (done && (readingTicks >= 1 || client.getTickCount() - loadedAtTick > 3)) phaseDone(step);
   }
 
   private String lastReading;
+  /** Tick the last scene load (teleport, region change) happened. */
+  private int loadedAtTick;
   private int readingTicks;
   /** The guided herb patch has died and needs clearing before anything else. */
   private volatile boolean deadPatch;
@@ -1773,6 +1785,12 @@ public class FarmingPlugin extends Plugin {
     if (fixed != null && (!noting || to == null)
         && (objectHighlights.isEmpty() && npcHighlights.isEmpty() || !step.phase.equals("Travel"))
         && (!step.phase.equals("Travel") || arrivedLeg(step))) to = fixed;
+    // Landed in Quetzacalli Gorge but the Mountain Guide isn't in view yet: head for his spot.
+    if (step.phase.equals("Travel")
+        && step.travel.toLowerCase(Locale.ROOT).contains("mountain guide")
+        && npcHighlights.isEmpty()
+        && from.getPlane() == 0
+        && GORGE_GUIDE.distanceTo(from) < 100) to = GORGE_GUIDE;
     // The target's full size, so the route goes to its nearest side (trees are often 2×2+).
     int w = 1, h = 1;
     if (!npcHighlights.isEmpty() && to != null && to.equals(npcHighlights.get(0).getWorldLocation())) {
@@ -1876,12 +1894,23 @@ public class FarmingPlugin extends Plugin {
     eventBus.post(new PluginMessage("shortestpath", "path", data));
   }
 
-  /** On a Travel step, once teleported out: the rest is on foot towards the patch. */
+  /**
+   * On a Travel step, once teleported out: the rest is on foot towards the patch. Before the
+   * teleport there's no path, however near the patch is (e.g. Falador Park to Taverley): the
+   * teleport is the step. Walking routes ("Walk to …") have no teleport, so they path straight away.
+   */
   private boolean arrivedLeg(Guidance step) {
     WorldPoint at = TargetData.PATCH_POINTS.get(step.patchId);
     Player player = client.getLocalPlayer();
-    return at != null && player != null && at.distanceTo(player.getWorldLocation()) < 120;
+    boolean onFoot = step.travel.toLowerCase(Locale.ROOT).startsWith("walk");
+    return at != null
+        && player != null
+        && (teleportedThisLeg || onFoot)
+        && at.distanceTo(player.getWorldLocation()) < 120;
   }
+
+  /** Where the Mountain Guide stands in Quetzacalli Gorge (Shortest Path's transport data). */
+  private static final WorldPoint GORGE_GUIDE = new WorldPoint(1486, 3232, 0);
 
   private volatile String noteAdvice;
 
@@ -1960,6 +1989,9 @@ public class FarmingPlugin extends Plugin {
   private boolean jumped;
 
   private String jumpPatch;
+
+  /** This patch's trip has teleported at least once (so walking to the patch is what's left). */
+  private volatile boolean teleportedThisLeg;
 
   private Object transportObject(Guidance step, Player player) {
     String travel = step.travel.toLowerCase(Locale.ROOT);
