@@ -34,6 +34,9 @@ final class Guidance {
   boolean resurrect;
   /** The patch after this one and how to get there, for the "Next up" line; null at the end. */
   String nextDestination, nextTravel;
+  /** The next stage's patch and kind, and its expected herbs if alive (for noting before leaving). */
+  String nextPatchId, nextKind;
+  int nextHerbsIfAlive = 8;
 
   Guidance(FarmingPlanner.Step s, Settings setup, int step, int total, String phase) {
     this(s, setup, step, total, phase, true);

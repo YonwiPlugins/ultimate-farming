@@ -2304,7 +2304,7 @@ public class FarmingPlugin extends Plugin {
         && !client.getTopLevelWorldView().isInstance()
         && inPatchArea(step.prevPatchId, now)
         && free < step.herbsIfAlive + 2
-        && noteHereShorter(step))
+        && noteHereShorter(step.prevPatchId, step.patchId, step.travel))
       return "Note your herbs here: " + free + " free slots, the next patch gives about "
           + step.herbsIfAlive;
     boolean started = step.patchId.equals(pickingPatch);
@@ -2351,6 +2351,16 @@ public class FarmingPlugin extends Plugin {
     // are next (orange), so noting is ready before it's full.
     int left = Math.max(1, step.herbsIfAlive - (step.patchId.equals(pickingPatch) ? pickedHere : 0));
     noteSoon = herbs && harvesting && stillToPick && free > 0 && free < left;
+    // Composting, the last step here, with a herb patch next: if you'll have to note before it
+    // and this leprechaun is the shorter walk, the herbs and him are next, not the teleport (it
+    // turns into "note here" once compost is done).
+    noteSoon |=
+        herbs
+            && step.phase.equals("Compost")
+            && "herb".equals(step.nextKind)
+            && leprechaun != null
+            && free < step.nextHerbsIfAlive + 2
+            && noteHereShorter(step.patchId, step.nextPatchId, step.nextTravel);
     // Full with more still to harvest (any crop): note at this patch's leprechaun, then finish.
     if (harvesting && stillToPick && free == 0)
       return "Inventory full: note your "
@@ -2491,16 +2501,17 @@ public class FarmingPlugin extends Plugin {
    * where its teleport lands, via its leprechaun, to the patch (about 0 when he's on the way in,
    * as at Falador). True when either isn't known.
    */
-  private boolean noteHereShorter(Guidance step) {
-    String key = step.prevPatchId + ">" + step.patchId;
+  private boolean noteHereShorter(String fromPatch, String toPatch, String toTravel) {
+    if (fromPatch == null || toPatch == null || toTravel == null) return true;
+    String key = fromPatch + ">" + toPatch;
     int[] costs = noteCosts.get(key);
     if (costs == null) {
-      WorldPoint prev = TargetData.HERB_POINTS.get(step.prevPatchId);
-      WorldPoint next = TargetData.HERB_POINTS.get(step.patchId);
+      WorldPoint prev = TargetData.HERB_POINTS.get(fromPatch);
+      WorldPoint next = TargetData.HERB_POINTS.get(toPatch);
       if (prev == null || next == null) return true;
       WorldPoint lepHere = TargetData.nearestLeprechaun(prev), lepNext = TargetData.nearestLeprechaun(next);
       if (lepHere == null || lepNext == null) return true;
-      WorldPoint land = likelyLanding(TeleportData.landingsFor(step.travel), next);
+      WorldPoint land = likelyLanding(TeleportData.landingsFor(toTravel), next);
       int here = walkTiles(prev, lepHere);
       int detour = Math.max(0, walkTiles(land, lepNext) + walkTiles(lepNext, next) - walkTiles(land, next));
       costs = new int[] {here, detour};

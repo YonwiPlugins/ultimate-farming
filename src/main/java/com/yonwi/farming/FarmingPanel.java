@@ -2046,6 +2046,14 @@ final class FarmingPanel extends PluginPanel {
       if (!settings.completed.contains(route.get(n).patch.id)) {
         guide.nextDestination = route.get(n).patch.name;
         guide.nextTravel = route.get(n).travel.text;
+        guide.nextPatchId = route.get(n).patch.id;
+        guide.nextKind = route.get(n).patch.kind;
+        guide.nextHerbsIfAlive =
+            (int)
+                Math.ceil(
+                    FarmingPlanner.expectedHerbsIfAlive(
+                        route.get(n).patch, settings, FarmingPlanner.farmingCapeWorn(route, settings)));
+        if (guide.nextHerbsIfAlive <= 0) guide.nextHerbsIfAlive = 8;
         // Its teleport item, to show in orange (not the staff or pouch: nothing to click there).
         List<String> teleport = new ArrayList<>(route.get(n).travel.items);
         teleport.addAll(route.get(n).travel.gear);
