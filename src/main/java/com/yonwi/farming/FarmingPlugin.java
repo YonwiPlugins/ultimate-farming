@@ -363,6 +363,15 @@ public class FarmingPlugin extends Plugin {
 
   /** Item IDs (all charge and tier variants) used by the guided action. */
   Set<Integer> itemIds(Guidance step) {
+    // Travelling: never the coins (a boat fare is paid in the chat), so a spell route shows the
+    // magic tab and spell rather than your coin stack.
+    if (step.phase.equals("Travel")) {
+      Set<Integer> ids = new HashSet<>(usableIds(step.items));
+      ids.removeAll(itemIds(Collections.singletonList("Coins")));
+      return ids;
+    }
+    // Paying the gardener: just him, never the coins or the payment.
+    if (step.phase.equals("Protect")) return Collections.emptySet();
     // Clearing a tree yourself: nothing to highlight in the inventory. Chop it down (the axe is
     // used from the inventory), then Clear on the stump or bare tree uses the spade by itself.
     if (step.phase.equals("Clear")) return Collections.emptySet();
@@ -1238,6 +1247,25 @@ public class FarmingPlugin extends Plugin {
       return;
     }
     Guidance step = guidance;
+    // Paying the gardener (protection, or removing the tree): "Pay" is his left-click. With more
+    // than one patch he has "Pay (tree patch)", "Pay (fruit tree)"…: the one for this patch.
+    if (step != null
+        && !client.isMenuOpen()
+        && (step.phase.equals("Protect")
+            || step.phase.equals("Clear") && GARDENER_REMOVAL.contains(step.kind) && !deadPatch)) {
+      int gardenerId = TargetData.GARDENERS.getOrDefault(step.patchId, -1);
+      MenuEntry[] entries = client.getMenuEntries();
+      MenuEntry pay = null;
+      for (MenuEntry entry : entries) {
+        NPC npc = entry.getNpc();
+        String option = Text.removeTags(entry.getOption()).toLowerCase(Locale.ROOT);
+        if (npc == null || npc.getId() != gardenerId || !option.startsWith("pay")) continue;
+        boolean fruit = option.contains("fruit");
+        if (pay == null || fruit == step.kind.equals("fruit")) pay = entry;
+      }
+      if (pay != null) moveToLeftClick(entries, pay);
+      return;
+    }
     if (step == null || !step.phase.equals("Travel") || client.isMenuOpen()) return;
     String travel = step.travel.toLowerCase(Locale.ROOT);
     String code = FarmingPlanner.fairyCode(step.travel);

@@ -438,6 +438,18 @@ final class FarmingPlanner {
               });
         break;
       case "anglers":
+        // Catherby portal in your house: right by the charter ship, much nearer than Camelot.
+        if (s.has("catherbyPortal"))
+          add(
+              o,
+              s,
+              "House teleport → Catherby portal; charter to Corsair Cove, rowboat to Anglers’"
+                  + " Retreat, then south",
+              s.has("cape") ? 4.2 : 4.4,
+              s.has("cape")
+                  ? new String[] {"Boat fare"}
+                  : new String[] {s.has("pouch") ? "Rune pouch" : "House teleport tablets", "Boat fare"},
+              s.has("cape") ? new String[] {"Construction cape"} : new String[0]);
         add(
             o,
             s,
