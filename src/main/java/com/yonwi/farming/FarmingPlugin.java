@@ -2012,7 +2012,7 @@ public class FarmingPlugin extends Plugin {
             ? null
             : target(step, step.nextPhase, gardener, patch, leprechaun);
     if (current instanceof TileObject)
-      objectHighlights = Collections.singletonList((TileObject) current);
+      objectHighlights = patchTiles(step, (TileObject) current, patch, player);
     if (current instanceof NPC) npcHighlights = Collections.singletonList((NPC) current);
     // Every crewmember of the charter ship, not just the nearest.
     if (current instanceof NPC && charterCrew.contains(current)) {
@@ -2023,7 +2023,7 @@ public class FarmingPlugin extends Plugin {
     }
     // The next step's target is only shown in orange when it isn't already the current one.
     if (next != current && next instanceof TileObject)
-      nextObjects = Collections.singletonList((TileObject) next);
+      nextObjects = patchTiles(step, (TileObject) next, patch, player);
     if (next != current && next instanceof NPC) nextNpcs = Collections.singletonList((NPC) next);
     noteSoon = false;
     noteAdvice = noteAdvice(step, player, patch, leprechaun);
@@ -2429,6 +2429,29 @@ public class FarmingPlugin extends Plugin {
         "leg " + step.patchId + ": teleport " + legTeleport + " ticks · transport " + legTransport
             + " ticks · walked " + legTiles + " tiles (" + (legTiles + 1) / 2 + " ticks running, "
             + legWalkTicks + " actual) · total " + (tick - legStart) + " ticks");
+  }
+
+  /**
+   * The target to highlight: just it, or, when it's a patch made of several tiles (the Farming
+   * Guild redwood), every one of its tiles, the nearest to you first so the path goes there.
+   */
+  private List<TileObject> patchTiles(Guidance step, TileObject target, TileObject patch, Player player) {
+    int[] area = TargetData.PATCH_AREAS.get(step.patchId);
+    if (area == null || target != patch) return Collections.singletonList(target);
+    List<TileObject> tiles = new ArrayList<>();
+    for (TileObject o : sceneObjects) {
+      WorldPoint at = o.getWorldLocation();
+      if (at.getPlane() != patch.getPlane()
+          || at.getX() < area[0] || at.getX() > area[2] || at.getY() < area[1] || at.getY() > area[3])
+        continue;
+      ObjectComposition c = client.getObjectDefinition(o.getId());
+      if (c != null && c.getImpostorIds() != null) c = c.getImpostor();
+      if (c != null && TargetData.patchLike(c, step.kind)) tiles.add(o);
+    }
+    if (!tiles.contains(target)) tiles.add(target);
+    WorldPoint you = player.getWorldLocation();
+    tiles.sort(Comparator.comparingInt(o -> o.getWorldLocation().distanceTo(you)));
+    return tiles;
   }
 
   /** Debug: noting advice last logged, and the stage last logged as started. */

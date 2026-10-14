@@ -59,6 +59,16 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
     for (int[] t : tiles) LEPRECHAUNS.add(new WorldPoint(t[0], t[1], 0));
   }
 
+  /**
+   * Patches made of several clickable tiles, as {minX, minY, maxX, maxY}: every one of them is
+   * highlighted, not just one. The Farming Guild redwood has a tile at each corner.
+   */
+  static final Map<String, int[]> PATCH_AREAS = new HashMap<>();
+
+  static {
+    PATCH_AREAS.put("guildredwood", new int[] {1225, 3751, 1232, 3758});
+  }
+
   /** The tool leprechaun nearest a spot, or null if none is within 30 tiles. */
   static WorldPoint nearestLeprechaun(WorldPoint at) {
     WorldPoint best = null;
@@ -94,6 +104,10 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
     PATCH_POINTS.put("kastori", new WorldPoint(1350, 3057, 0));
     // Locus Oasis hardwood patch: 3×3 from 1686,2971 to 1688,2973 (checked in-game).
     PATCH_POINTS.put("locus", new WorldPoint(1687, 2972, 0));
+    // Farming Guild redwood (8×8, 1225,3751 to 1232,3758; middle) and Celastrus (centre), from
+    // Ned's in-game tile checks.
+    PATCH_POINTS.put("guildredwood", new WorldPoint(1228, 3754, 0));
+    PATCH_POINTS.put("guildcelastrus", new WorldPoint(1244, 3750, 0));
     // Anglers' Retreat hardwood patch, 3×3 from 2470,2702.
     PATCH_POINTS.put("anglers", new WorldPoint(2471, 2703, 0));
     PATCH_POINTS.put("calquat", new WorldPoint(2795, 3102, 0));
