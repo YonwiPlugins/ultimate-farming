@@ -742,6 +742,22 @@ final class FarmingPlanner {
     return k;
   }
 
+  /**
+   * Inventory slots the kit takes. Worn gear takes none; saplings and ultracompost take one each;
+   * everything else stacks or comes noted (seeds, runes, coins, tabs, protection payments) and
+   * takes one. Up to three kinds of rune ride in the rune pouch.
+   */
+  static int slots(Kit k) {
+    int slots = 0, runes = 0;
+    for (Map.Entry<String, Integer> e : k.bring.entrySet()) {
+      String n = e.getKey();
+      if (n.endsWith(" rune")) runes++;
+      else if (n.endsWith(" sapling") || n.equals("Ultracompost")) slots += e.getValue();
+      else slots++;
+    }
+    return slots + (k.bring.containsKey("Rune pouch") ? Math.max(0, runes - 3) : runes);
+  }
+
   static int removalCost(Patch p) {
     return p.kind.equals("redwood")
         ? 2000

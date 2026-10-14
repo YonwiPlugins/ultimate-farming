@@ -1438,6 +1438,14 @@ final class FarmingPanel extends PluginPanel {
    * "Your run" on the Run tab: run types with their crops, then which patches. This is what
    * changes from run to run, so it sits right above "Prepare run".
    */
+  /** Whether the kit still fits in 28 inventory slots with this run type added. */
+  private boolean fitsWith(String kind) {
+    Settings copy = gson.fromJson(gson.toJson(settings), Settings.class);
+    copy.kinds.add(kind);
+    List<FarmingPlanner.Step> plan = FarmingPlanner.plan(copy);
+    return FarmingPlanner.slots(FarmingPlanner.kit(plan, copy)) <= 28;
+  }
+
   private void addRunChoices(JPanel page) {
       page.add(Style.section("Your run"));
       if (clientLevel == 0) page.add(muted("Log in to read your Farming level."));
@@ -1458,7 +1466,9 @@ final class FarmingPanel extends PluginPanel {
                 new EmptyBorder(7, 7, 7, 14))); // keeps the tickbox off the right edge
         JCheckBox include = Style.tickbox(new JCheckBox("", on));
         include.setOpaque(false);
-        include.setEnabled(session == null);
+        // Adding this run type would need more than a full inventory: greyed out.
+        boolean fits = on || fitsWith(kind);
+        include.setEnabled(session == null && fits);
         include.addActionListener(
             e ->
                 change(
@@ -1488,6 +1498,14 @@ final class FarmingPanel extends PluginPanel {
         head.add(include, BorderLayout.EAST);
         head.setAlignmentX(Component.LEFT_ALIGNMENT);
         head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
+        if (!fits) {
+          name.setForeground(Style.DONE_TEXT);
+          count.setForeground(Style.DONE_TEXT);
+          picture.setEnabled(false);
+          String tip = "Too many items needed, won't fit in your inventory";
+          for (JComponent c : new JComponent[] {card, head, name, count, picture, include})
+            c.setToolTipText(tip);
+        }
         card.add(head);
         if (on) {
           JComboBox<Crop> crops =
@@ -1508,6 +1526,13 @@ final class FarmingPanel extends PluginPanel {
           addCropOptions(card, kind);
         }
         addCard(page, card);
+      }
+      int slots = kit == null ? 0 : FarmingPlanner.slots(kit);
+      if (slots > 28) {
+        JLabel over =
+            muted("Too many items needed, won't fit in your inventory");
+        over.setForeground(WARN);
+        page.add(over);
       }
       long chosen =
           FarmingData.PATCHES.stream()
