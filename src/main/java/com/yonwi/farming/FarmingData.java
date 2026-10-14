@@ -429,6 +429,8 @@ PATCHES.add(new Patch("herbguild", "Farming Guild", "herb"));
     if (name.equals("Construction cape")) return ItemID.SKILLCAPE_CONSTRUCTION_TRIMMED;
     if (name.equals("Teleport crystal")) return ItemID.PRIF_TELEPORT_CRYSTAL;
     if (name.equals("Bottomless compost bucket")) return ItemID.BOTTOMLESS_COMPOST_BUCKET_FILLED;
+    // The divine pouch is listed first for loading, but the plain pouch is the usual picture.
+    if (name.equals("Rune pouch")) return ItemID.BH_RUNE_POUCH;
     int[] values = IDS.get(name);
     return values == null || values.length == 0 ? 0 : values[0];
   }

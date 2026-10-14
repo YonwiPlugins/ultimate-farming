@@ -1167,7 +1167,7 @@ final class FarmingPanel extends PluginPanel {
         };
     icon.setPreferredSize(new Dimension(36, 32));
     List<Integer> ids = new ArrayList<>();
-    ids.add(FarmingData.id("Rune pouch"));
+    ids.add(shownId("Rune pouch"));
     ids.addAll(runes.keySet());
     clientThread.invoke(
         () -> {
