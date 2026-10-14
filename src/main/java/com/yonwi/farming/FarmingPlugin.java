@@ -1777,6 +1777,12 @@ public class FarmingPlugin extends Plugin {
 
   @Subscribe
   public void onChatMessage(ChatMessage e) {
+    // Debug: the game's own messages and dialogue boxes (never players' chat).
+    if (e.getType() == ChatMessageType.GAMEMESSAGE
+        || e.getType() == ChatMessageType.SPAM
+        || e.getType() == ChatMessageType.MESBOX
+        || e.getType() == ChatMessageType.DIALOG)
+      debugLog("chat [" + e.getType() + "] " + Text.removeTags(e.getMessage()));
     if (e.getType() != ChatMessageType.GAMEMESSAGE && e.getType() != ChatMessageType.SPAM) return;
     String m = Text.removeTags(e.getMessage()).toLowerCase(Locale.ROOT);
     if (m.contains("spellbook")) {
@@ -1816,7 +1822,41 @@ public class FarmingPlugin extends Plugin {
   }
 
   /** Gardeners confirm protection in dialogue rather than in chat. */
+  /** Debug: the last dialogue logged (NPC line, your line and options), to log each once. */
+  private String lastDialogueLog;
+
+  private void logDialogue() {
+    StringBuilder b = new StringBuilder();
+    for (int[] part :
+        new int[][] {
+          {InterfaceID.ChatLeft.NAME, InterfaceID.ChatLeft.TEXT},
+          {InterfaceID.ChatRight.NAME, InterfaceID.ChatRight.TEXT}
+        }) {
+      Widget name = client.getWidget(part[0]), text = client.getWidget(part[1]);
+      if (text != null && !text.isHidden() && text.getText() != null)
+        b.append(name == null ? "" : Text.removeTags(String.valueOf(name.getText())))
+            .append(": ")
+            .append(Text.removeTags(text.getText()))
+            .append(' ');
+    }
+    Widget options = client.getWidget(InterfaceID.Chatmenu.OPTIONS);
+    if (options != null && !options.isHidden() && options.getDynamicChildren() != null) {
+      List<String> lines = new ArrayList<>();
+      for (Widget w : options.getDynamicChildren())
+        if (w != null && w.getText() != null && !w.getText().isEmpty()) lines.add(Text.removeTags(w.getText()));
+      if (!lines.isEmpty()) b.append("options ").append(lines);
+    }
+    String now = b.toString().trim();
+    if (now.isEmpty() || now.equals(lastDialogueLog)) {
+      if (now.isEmpty()) lastDialogueLog = null;
+      return;
+    }
+    lastDialogueLog = now;
+    debugLog("dialogue: " + now);
+  }
+
   private void watchGardenerDialog() {
+    if (config.debug()) logDialogue();
     Widget text = client.getWidget(InterfaceID.ChatLeft.TEXT);
     String value = text == null || text.isHidden() ? null : text.getText();
     if (Objects.equals(value, lastDialog)) return;
@@ -1978,6 +2018,7 @@ public class FarmingPlugin extends Plugin {
     if (next != current && next instanceof NPC) nextNpcs = Collections.singletonList((NPC) next);
     noteSoon = false;
     noteAdvice = noteAdvice(step, player, patch, leprechaun);
+    if (config.debug()) logNoting(step, leprechaun);
     if (noteAdvice == null && noteSoon && leprechaun != null) {
       nextNpcs = Collections.singletonList(leprechaun);
       nextObjects = Collections.emptyList();
@@ -2305,6 +2346,39 @@ public class FarmingPlugin extends Plugin {
           + " at this leprechaun, then finish "
           + (step.kind.equals("celastrus") ? "harvesting" : "picking");
     return null;
+  }
+
+  /** Debug: noting advice last logged, and the stage last logged as started. */
+  private String lastNoteLog, lastStageLog;
+
+  /** Debug: a line when a stage starts, and when noting advice turns on, off or changes. */
+  private void logNoting(Guidance step, NPC leprechaun) {
+    ItemContainer inventory = client.getItemContainer(InventoryID.INV);
+    int used = 0, unnoted = 0;
+    Set<Integer> produce = noteItems();
+    if (inventory != null)
+      for (Item item : inventory.getItems())
+        if (item.getId() > 0) {
+          used++;
+          if (produce.contains(item.getId())) unnoted++;
+        }
+    if (!step.patchId.equals(lastStageLog)) {
+      lastStageLog = step.patchId;
+      debugLog(
+          "stage: " + step.patchId + " (" + step.kind + ") · " + step.travel + " · steps " + step.phases
+              + " · " + (28 - used) + " free slots · expected herbs " + step.herbsIfAlive
+              + " (with deaths " + step.herbsPerPatch + ")");
+    }
+    String state = noteAdvice + "|" + noteSoon;
+    if (state.equals(lastNoteLog)) return;
+    lastNoteLog = state;
+    debugLog(
+        "noting: " + (noteAdvice != null ? "advice '" + noteAdvice + "'" : noteSoon ? "soon (orange)" : "off")
+            + " · " + step.phase + " · free " + (28 - used) + " · unnoted produce " + unnoted
+            + " · expected " + step.herbsIfAlive + " · picked here "
+            + (step.patchId.equals(pickingPatch) ? pickedHere : 0) + " · previous stage "
+            + step.prevPatchId + " (" + step.prevKind + ") · leprechaun "
+            + (leprechaun == null ? "none" : leprechaun.getWorldLocation().getX() + "," + leprechaun.getWorldLocation().getY()));
   }
 
   /** Herbs picked at {@link #pickingPatch} so far. */
