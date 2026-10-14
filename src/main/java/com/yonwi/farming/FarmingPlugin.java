@@ -1922,7 +1922,10 @@ public class FarmingPlugin extends Plugin {
             && free < step.herbsPerPatch
             && at != null
             && at.getPlane() == here.getPlane()
-            && at.distanceTo(here) <= 25;
+            // In the patch's own area (RuneLite's farming regions for it), not just anywhere.
+            && TargetData.HERB_REGIONS
+                .getOrDefault(step.patchId, Collections.emptySet())
+                .contains(here.getRegionID());
     if (!approaching) noteOnWayIn = null;
     else if (step.patchId.equals(noteOnWayIn)) return noteOnWayInText(free, step);
     else if (leprechaun != null && leprechaun.getWorldLocation().distanceTo(here) < at.distanceTo(here)) {
