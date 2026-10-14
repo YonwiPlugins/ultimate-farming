@@ -1446,6 +1446,9 @@ final class FarmingPanel extends PluginPanel {
     return FarmingPlanner.slots(FarmingPlanner.kit(plan, copy)) <= 28;
   }
 
+  /** The Run tab's patch list is shown (it starts collapsed each session). */
+  private boolean patchesOpen;
+
   private void addRunChoices(JPanel page) {
       page.add(Style.section("Your run"));
       if (clientLevel == 0) page.add(muted("Log in to read your Farming level."));
@@ -1538,7 +1541,35 @@ final class FarmingPanel extends PluginPanel {
           FarmingData.PATCHES.stream()
               .filter(p -> settings.kinds.contains(p.kind) && !settings.excluded.contains(p.id))
               .count();
-      page.add(Style.section("Patches", "(" + chosen + " selected)"));
+      // Collapsed until clicked: most runs use every patch.
+      // (The arrow is the same as the Records tables' collapse button.)
+      Runnable toggle =
+          () -> {
+            patchesOpen = !patchesOpen;
+            renderRoute();
+          };
+      JPanel heading = new JPanel(new BorderLayout());
+      heading.setOpaque(false);
+      heading.add(Style.section("Patches", "(" + chosen + " selected)"), BorderLayout.WEST);
+      heading.add(
+          iconButton(
+              patchesOpen ? "▴" : "▾",
+              patchesOpen ? "Hide patches" : "Choose which patches to visit",
+              MUTED,
+              toggle),
+          BorderLayout.EAST);
+      heading.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+      heading.addMouseListener(
+          new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+              toggle.run();
+            }
+          });
+      heading.setAlignmentX(Component.LEFT_ALIGNMENT);
+      heading.setMaximumSize(new Dimension(Integer.MAX_VALUE, heading.getPreferredSize().height));
+      page.add(heading);
+      if (!patchesOpen) return;
       JPanel patchCard = Style.card();
       // The type is only worth naming when more than one is in the run.
       boolean mixed = settings.kinds.size() > 1;
