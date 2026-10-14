@@ -2297,7 +2297,8 @@ public class FarmingPlugin extends Plugin {
         && leprechaun != null
         && !client.getTopLevelWorldView().isInstance()
         && inPatchArea(step.prevPatchId, now)
-        && free < step.herbsIfAlive + 2)
+        && free < step.herbsIfAlive + 2
+        && noteHereShorter(step))
       return "Note your herbs here: " + free + " free slots, the next patch gives about "
           + step.herbsIfAlive;
     boolean started = step.patchId.equals(pickingPatch);
@@ -2393,10 +2394,10 @@ public class FarmingPlugin extends Plugin {
     if (before != null && !before.equals(here)) {
       boolean jump = before.getPlane() != here.getPlane() || before.distanceTo(here) > 2;
       if (jump) {
-        // From the click that set it off (the last click), or the leg's start.
-        int took = tick - Math.max(legStart, legLastClick);
-        if (legJumps++ == 0) legTeleport += took;
-        else legTransport += took;
+        // The teleport from its own click (the leg's start); later transport (boat, charter,
+        // guide) from the click that set it off.
+        if (legJumps++ == 0) legTeleport += tick - legStart;
+        else legTransport += tick - Math.max(legStart, legLastClick);
       } else {
         legTiles += before.distanceTo(here);
         legWalkTicks++;
@@ -2443,6 +2444,67 @@ public class FarmingPlugin extends Plugin {
             + (step.patchId.equals(pickingPatch) ? pickedHere : 0) + " · previous stage "
             + step.prevPatchId + " (" + step.prevKind + ") · leprechaun "
             + (leprechaun == null ? "none" : leprechaun.getWorldLocation().getX() + "," + leprechaun.getWorldLocation().getY()));
+  }
+
+  /** Tiles to walk between two spots along real paths, or straight-line tiles without a route. */
+  private static int walkTiles(WorldPoint a, WorldPoint b) {
+    if (a.getPlane() != b.getPlane()) return 1000;
+    if (a.distanceTo(b) <= 1) return 0;
+    List<WorldPoint> route = WorldPath.find(a, b);
+    return route.isEmpty() ? a.distanceTo(b) : route.size();
+  }
+
+  /**
+   * Where a route's teleport most likely lands: the spot its matching teleport rows name most
+   * often (a ring's or spell's several rows agree), nearest the patch on a tie; the patch itself
+   * when none is within 100 tiles.
+   */
+  static WorldPoint likelyLanding(List<WorldPoint> landings, WorldPoint patch) {
+    Map<WorldPoint, Integer> count = new HashMap<>();
+    for (WorldPoint l : landings)
+      if (l.getPlane() == patch.getPlane() && l.distanceTo(patch) < 100) count.merge(l, 1, Integer::sum);
+    WorldPoint best = patch;
+    int most = 0;
+    for (Map.Entry<WorldPoint, Integer> e : count.entrySet())
+      if (e.getValue() > most
+          || e.getValue() == most && e.getKey().distanceTo(patch) < best.distanceTo(patch)) {
+        best = e.getKey();
+        most = e.getValue();
+      }
+    return best;
+  }
+
+  /** Noting costs per pair of stages ("from>to"): {here, detour at the next patch}, in tiles. */
+  private final Map<String, int[]> noteCosts = new HashMap<>();
+
+  /**
+   * Whether noting at the previous herb patch's leprechaun is a shorter walk than noting at this
+   * stage's: here it's patch to leprechaun (you teleport from there); there it's the detour from
+   * where its teleport lands, via its leprechaun, to the patch (about 0 when he's on the way in,
+   * as at Falador). True when either isn't known.
+   */
+  private boolean noteHereShorter(Guidance step) {
+    String key = step.prevPatchId + ">" + step.patchId;
+    int[] costs = noteCosts.get(key);
+    if (costs == null) {
+      WorldPoint prev = TargetData.HERB_POINTS.get(step.prevPatchId);
+      WorldPoint next = TargetData.HERB_POINTS.get(step.patchId);
+      if (prev == null || next == null) return true;
+      WorldPoint lepHere = TargetData.nearestLeprechaun(prev), lepNext = TargetData.nearestLeprechaun(next);
+      if (lepHere == null || lepNext == null) return true;
+      WorldPoint land = likelyLanding(TeleportData.landingsFor(step.travel), next);
+      int here = walkTiles(prev, lepHere);
+      int detour = Math.max(0, walkTiles(land, lepNext) + walkTiles(lepNext, next) - walkTiles(land, next));
+      costs = new int[] {here, detour};
+      // Only kept once the map is loaded, so a straight-line guess isn't stuck.
+      if (WorldPath.ready()) {
+        noteCosts.put(key, costs);
+        debugLog(
+            "note costs " + key + ": here " + here + " tiles, detour at the next patch " + detour
+                + " tiles (landing " + land.getX() + "," + land.getY() + ")");
+      }
+    }
+    return costs[0] < costs[1];
   }
 
   /** Herbs picked at {@link #pickingPatch} so far. */

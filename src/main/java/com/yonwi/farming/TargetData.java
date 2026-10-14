@@ -40,6 +40,38 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
   }
 
   /**
+   * Where every tool leprechaun stands, from the OSRS wiki's Tool Leprechaun page; Troll
+   * Stronghold's (not listed there) from the plugin's debug log.
+   */
+  static final List<WorldPoint> LEPRECHAUNS = new ArrayList<>();
+
+  static {
+    int[][] tiles = {
+      {1234, 3761}, {1236, 3732}, {1252, 3756}, {1262, 3731}, {1741, 3552}, {1696, 3544},
+      {1806, 3555}, {2596, 3860}, {2848, 3930}, {2439, 3414}, {2478, 3444}, {2346, 3164},
+      {2573, 3108}, {2485, 3178}, {2619, 3221}, {2671, 3368}, {2663, 3521}, {2815, 3466},
+      {2863, 3432}, {2812, 3332}, {2773, 3211}, {2797, 3104}, {2939, 3219}, {3064, 3255},
+      {3053, 3305}, {3087, 3352}, {3196, 3228}, {3319, 3204}, {3222, 3316}, {3182, 3354},
+      {3232, 3455}, {3454, 3468}, {3596, 3524}, {3792, 2840}, {3712, 3839}, {2941, 3432},
+      {3008, 3370}, {1593, 3099}, {1683, 2971}, {1364, 2943}, {1369, 3318}, {1448, 3355},
+      {1352, 3058}, {1354, 3030}, {2826, 3685}
+    };
+    for (int[] t : tiles) LEPRECHAUNS.add(new WorldPoint(t[0], t[1], 0));
+  }
+
+  /** The tool leprechaun nearest a spot, or null if none is within 30 tiles. */
+  static WorldPoint nearestLeprechaun(WorldPoint at) {
+    WorldPoint best = null;
+    int closest = 30;
+    for (WorldPoint l : LEPRECHAUNS)
+      if (l.getPlane() == at.getPlane() && l.distanceTo(at) < closest) {
+        best = l;
+        closest = l.distanceTo(at);
+      }
+    return best;
+  }
+
+  /**
    * Every patch with a known position (herbs above plus trees, fruit trees and Calquat), for
    * arrival checks and tile pathing. Tree coordinates from Quest Helper's tree run.
    */
