@@ -179,7 +179,12 @@ final class FarmingData {
     IDS.put(
         "Bottomless compost bucket",
         new int[] {ItemID.BOTTOMLESS_COMPOST_BUCKET, ItemID.BOTTOMLESS_COMPOST_BUCKET_FILLED});
-    IDS.put("Rune pouch", new int[] {ItemID.BH_RUNE_POUCH});
+    IDS.put(
+        "Rune pouch",
+        new int[] {
+          ItemID.DIVINE_RUNE_POUCH, ItemID.DIVINE_RUNE_POUCH_TROUVER, ItemID.BH_RUNE_POUCH,
+          ItemID.BH_RUNE_POUCH_TROUVER
+        });
     IDS.put("Law rune", new int[] {ItemID.LAWRUNE});
     IDS.put("Lava rune", new int[] {ItemID.LAVARUNE});
     IDS.put("Mist rune", new int[] {ItemID.MISTRUNE});

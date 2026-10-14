@@ -255,16 +255,69 @@ final class FarmingInventoryOverlay extends Overlay {
     }
   }
 
+  /** The bank's rune pouch panel: each saved loadout's runes and its Load button, A to J. */
+  private static final int[][] LOADOUTS = {
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_A, InterfaceID.Bankside.RUNEPOUCH_LOAD_A},
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_B, InterfaceID.Bankside.RUNEPOUCH_LOAD_B},
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_C, InterfaceID.Bankside.RUNEPOUCH_LOAD_C},
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_D, InterfaceID.Bankside.RUNEPOUCH_LOAD_D},
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_E, InterfaceID.Bankside.RUNEPOUCH_LOAD_E},
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_F, InterfaceID.Bankside.RUNEPOUCH_LOAD_F},
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_G, InterfaceID.Bankside.RUNEPOUCH_LOAD_G},
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_H, InterfaceID.Bankside.RUNEPOUCH_LOAD_H},
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_I, InterfaceID.Bankside.RUNEPOUCH_LOAD_I},
+    {InterfaceID.Bankside.RUNEPOUCH_LOADOUT_J, InterfaceID.Bankside.RUNEPOUCH_LOAD_J},
+  };
+
+  /** How many kinds of rune your pouch holds: 4 in a divine rune pouch, else 3. */
+  private int pouchKinds() {
+    ItemContainer inv = client.getItemContainer(InventoryID.INV);
+    if (inv != null)
+      for (Item item : inv.getItems())
+        if (item.getId() == ItemID.DIVINE_RUNE_POUCH || item.getId() == ItemID.DIVINE_RUNE_POUCH_TROUVER)
+          return 4;
+    return 3;
+  }
+
   /**
    * The rune pouch is missing runes the run needs: highlight the pouch (its Configure is the
-   * left-click), then, in the pouch window, a saved loadout holding all of them, whatever order
-   * they're in.
+   * left-click), then, in the pouch panel, the Load button of a saved loadout holding the run's
+   * runes, whatever order they're in. Never the runes in the bank: the pouch is what to set up.
    */
   private void markPouchSetup(Graphics2D g, Set<Integer> shortRunes) {
     // The pouch can only be configured at the bank.
     Widget bank = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
     if (bank == null || bank.isHidden()) return;
     Set<Integer> needed = plugin.runesNeeded();
+    Set<Integer> pouch = FarmingPlugin.itemIds(Collections.singletonList("Rune pouch"));
+    Widget panel = client.getWidget(InterfaceID.Bankside.RUNEPOUCH_CONTAINER);
+    if (panel != null && !panel.isHidden()) {
+      // The loadout with the most of the run's runes (extras don't matter), as long as it has
+      // all of them, or as many as the pouch holds (3, or 4 in a divine pouch).
+      int enough = Math.min(pouchKinds(), needed.size());
+      Widget best = null;
+      int bestOverlap = 0;
+      for (int[] loadout : LOADOUTS) {
+        Widget box = client.getWidget(loadout[0]);
+        Widget load = client.getWidget(loadout[1]);
+        if (box == null || load == null || box.isHidden() || load.isHidden()) continue;
+        Set<Integer> runes = runesIn(box, 0);
+        runes.retainAll(needed);
+        if (runes.size() > bestOverlap) {
+          best = load;
+          bestOverlap = runes.size();
+        }
+      }
+      if (best != null && bestOverlap >= enough) {
+        mark(g, visibleBounds(best), ITEM);
+        plugin.setPouchHint(null);
+      } else {
+        for (Widget item : visibleChildren(InterfaceID.Bankside.ITEMS))
+          if (pouch.contains(item.getItemId())) mark(g, item.getBounds(), ITEM);
+        plugin.setPouchHint("No saved loadout has this run's runes: put them in your pouch");
+      }
+      return;
+    }
     Widget window = client.getWidget(InterfaceID.RunePouch.UNIVERSE);
     if (window != null && !window.isHidden()) {
       // A saved loadout holding at least 3 of the run's runes (or all of them, if fewer).
@@ -292,19 +345,9 @@ final class FarmingInventoryOverlay extends Overlay {
       }
       return;
     }
-    // The pouch already holds three kinds and none of them is short: what's missing goes in the
-    // inventory, so it's the runes in the bank to click, not the pouch again.
-    Set<Integer> inPouch = new java.util.HashSet<>();
-    for (java.util.Map.Entry<Integer, Integer> rune : plugin.pouchRunes().entrySet())
-      if (rune.getValue() > 0) inPouch.add(rune.getKey());
-    if (inPouch.size() >= 3 && Collections.disjoint(inPouch, shortRunes)) {
-      markBankItems(g, shortRunes);
-      plugin.setPouchHint("Your pouch is full: withdraw the highlighted runes");
-      return;
-    }
-    // In the bank: the pouch in the bank-side inventory, with Configure as its left-click.
+    // In the bank: the pouch in the bank-side inventory, with Configure as its left-click (even
+    // when it's full: a loadout swaps the run's runes in).
     plugin.setPouchHint("Configure your rune pouch for this run");
-    Set<Integer> pouch = FarmingPlugin.itemIds(Collections.singletonList("Rune pouch"));
     for (Widget item : visibleChildren(InterfaceID.Bankside.ITEMS))
       if (pouch.contains(item.getItemId())) mark(g, item.getBounds(), ITEM);
   }
