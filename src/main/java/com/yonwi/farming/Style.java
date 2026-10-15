@@ -162,7 +162,7 @@ final class Style {
 
   /** A bordered card that lays its children out top to bottom. */
   static JPanel card() {
-    JPanel card = FarmingPanel.column();
+    JPanel card = PanelWidgets.column();
     card.setBackground(CARD);
     card.setBorder(
         BorderFactory.createCompoundBorder(
