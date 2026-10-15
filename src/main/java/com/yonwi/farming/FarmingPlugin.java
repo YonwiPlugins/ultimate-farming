@@ -284,6 +284,11 @@ public class FarmingPlugin extends Plugin {
           Arrays.asList(
               net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK_OPEN,
               net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK_SILK_OPEN));
+  private static final Set<Integer> SHUT_HERB_SACKS =
+      new HashSet<>(
+          Arrays.asList(
+              net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK,
+              net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK_SILK));
   static final int HERB_SACK_SIZE = 30;
   /**
    * Herbs picked into the open sack since the bank was last open (where it's assumed emptied). It
@@ -843,6 +848,26 @@ public class FarmingPlugin extends Plugin {
   /** Room left in an open herb sack carried in the inventory (0 without one). */
   private int sackRoom() {
     return holdingUnnoted(OPEN_HERB_SACKS) ? Math.max(0, HERB_SACK_SIZE - sackHerbs) : 0;
+  }
+
+  static Set<Integer> shutHerbSacks() {
+    return SHUT_HERB_SACKS;
+  }
+
+  /**
+   * At a herb patch offering Pick with the herb sack carried shut (none open) and not yet full:
+   * open it first, so the herbs go in it instead of the inventory.
+   */
+  boolean openSackNow() {
+    Guidance step = guidance;
+    return step != null
+        && step.kind.equals("herb")
+        && step.phase.equals("Harvest")
+        && wasPickable
+        && !deadPatch
+        && sackHerbs < HERB_SACK_SIZE
+        && holdingUnnoted(SHUT_HERB_SACKS)
+        && !holdingUnnoted(OPEN_HERB_SACKS);
   }
 
   /**
@@ -3008,6 +3033,12 @@ public class FarmingPlugin extends Plugin {
         teleportClickedAt = client.getTickCount();
         teleportClickedPatch = step.patchId;
         stepTransportAt = client.getTickCount();
+        // The run has set off: a used-up teleport (a scroll, a ring's last charge) mustn't send
+        // the guide back to Bank first.
+        SwingUtilities.invokeLater(
+            () -> {
+              if (active && panel != null) panel.setOff();
+            });
       }
     }
     // An item used on the patch or an NPC (seed, sapling, compost, herbs on the leprechaun).

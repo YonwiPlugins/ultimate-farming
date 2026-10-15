@@ -48,6 +48,7 @@ final class AccountScan {
         new int[] {ItemID.STRONGHOLD_TELEPORT_BASALT, ItemID.WEISS_TELEPORT_BASALT});
     ITEMS.put("herbTrollheim", new int[] {ItemID.NZONE_TELETAB_TROLLHEIM});
     ITEMS.put("herbHarmonyTab", new int[] {ItemID.TELETAB_HARMONY});
+    ITEMS.put("herbSack", FarmingData.IDS.get("Herb sack"));
     ITEMS.put("cape", FarmingData.IDS.get("Construction cape"));
     ITEMS.put("farmingCape", FarmingData.IDS.get("Farming cape"));
     ITEMS.put(

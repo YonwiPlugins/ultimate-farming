@@ -52,6 +52,8 @@ final class FarmingHighlightOverlay extends Overlay {
             || step.phase.equals("Compost")
             || step.phase.startsWith("Note")
             || plugin.noteAdvice() != null
+            // Herb sack shut: opening it comes first, so the patch is next.
+            || plugin.openSackNow()
             // Digging up a stump or bare tree: spade first.
             || step.phase.equals("Clear") && !plugin.itemIds(step).isEmpty();
     Color ink =

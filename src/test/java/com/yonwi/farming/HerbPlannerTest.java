@@ -32,6 +32,15 @@ public class HerbPlannerTest {
     String tags=FarmingPlanner.tags(k,s);
     for(String n:k.bring.keySet()) {assertTrue(n,FarmingData.id(n)>0); assertTrue(tags.contains(","+FarmingData.IDS.get(n)[0]));}
   }
+  @Test public void ownedHerbSackJoinsTheHerbKitAndBankTag() {
+    Settings s=setup(); FarmingPlanner.Kit k=FarmingPlanner.kit(FarmingPlanner.plan(s),s);
+    assertFalse(k.bring.containsKey("Herb sack"));
+    s.unlocks.add("herbSack"); k=FarmingPlanner.kit(FarmingPlanner.plan(s),s);
+    assertEquals(Integer.valueOf(1),k.bring.get("Herb sack"));
+    String tags=FarmingPlanner.tags(k,s);
+    // Shut, open and silk sacks all show in the bank filter.
+    for(int id:FarmingData.IDS.get("Herb sack")) assertTrue(tags.contains(","+id));
+  }
   @Test public void herbEconomicsAndPhasesAreIndependentOfFruitToggle() {
     Settings s=setup();s.harvest=false;s.farmer=false;s.unlocks.remove("farmingCape");
     List<FarmingPlanner.Step> r=FarmingPlanner.plan(s);

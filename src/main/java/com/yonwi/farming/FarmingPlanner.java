@@ -734,6 +734,9 @@ final class FarmingPlanner {
       }
     }
     if(route.stream().anyMatch(x -> x.patch.kind.equals("herb"))) k.add("Seed dibber",1);
+    // An owned herb sack comes along: open, it takes the herbs before the inventory does.
+    if (s.has("herbSack") && route.stream().anyMatch(x -> x.patch.kind.equals("herb")))
+      k.bring.put("Herb sack", 1);
     if (removal > 0) k.add("Coins", removal);
     if (compost > 0)
       k.add(s.bucket ? "Bottomless compost bucket" : "Ultracompost", s.bucket ? 1 : compost);

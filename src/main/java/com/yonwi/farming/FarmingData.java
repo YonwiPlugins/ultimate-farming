@@ -354,6 +354,13 @@ IDS.put("Grimy dwarf weed", new int[] {ItemID.UNIDENTIFIED_DWARF_WEED});
 IDS.put("Torstol seed", new int[] {ItemID.TORSTOL_SEED});
 IDS.put("Grimy torstol", new int[] {ItemID.UNIDENTIFIED_TORSTOL});
 IDS.put("Magic secateurs", new int[] {ItemID.FAIRY_ENCHANTED_SECATEURS});
+// Shut or open, plain or silk: picked herbs go in it while it's open.
+IDS.put(
+    "Herb sack",
+    new int[] {
+      ItemID.SLAYER_HERB_SACK, ItemID.SLAYER_HERB_SACK_OPEN, ItemID.SLAYER_HERB_SACK_SILK,
+      ItemID.SLAYER_HERB_SACK_SILK_OPEN
+    });
 IDS.put("Seed dibber", new int[] {ItemID.DIBBER});
 // Empty for a few seconds after teleporting, while it refills at the Ectofuntus.
 IDS.put("Ectophial", new int[] {ItemID.ECTOPHIAL, ItemID.ECTOPHIAL_EMPTY});

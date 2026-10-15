@@ -218,6 +218,12 @@ final class FarmingInventoryOverlay extends Overlay {
       else markInventory(g, plugin.noteItems(), ITEM, true);
       return null;
     }
+    // Herb sack carried shut: open it before picking, so the herbs go in it.
+    if (plugin.openSackNow()) {
+      if (open != INVENTORY_TAB) mark(g, stone(0));
+      else markInventory(g, FarmingPlugin.shutHerbSacks(), ITEM, true);
+      return null;
+    }
     // Paying the gardener to remove the tree: "Yes." in his "...chopped down?" choice.
     if (step.phase.equals("Clear")) markRemovalYes(g);
     // Once the seed or compost is selected, only the patch is left to click.

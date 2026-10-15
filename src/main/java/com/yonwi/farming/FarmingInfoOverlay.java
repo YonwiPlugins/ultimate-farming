@@ -74,6 +74,8 @@ final class FarmingInfoOverlay extends OverlayPanel {
                   : step.labels.get(i);
       wrap((i + 1) + ". " + label, c);
     }
+    if (plugin.openSackNow())
+      wrap("Open your herb sack first, so the herbs go in it", FarmingInventoryOverlay.TARGET);
     String note = plugin.noteAdvice();
     if (note != null) wrap(note, WARN);
     return super.render(g);

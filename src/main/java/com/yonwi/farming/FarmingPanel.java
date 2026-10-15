@@ -564,6 +564,13 @@ final class FarmingPanel extends PluginPanel {
   /** Lets the player set off without the full kit, until the run is cleared. */
   private boolean skipBankCheck;
 
+  /** A route teleport was used: the run is under way, whatever the kit now lacks. */
+  void setOff() {
+    if (skipBankCheck || !prepared) return;
+    skipBankCheck = true;
+    updateGuide();
+  }
+
   private static final Color WARN = new Color(255, 140, 110);
 
   /**
@@ -1377,6 +1384,7 @@ final class FarmingPanel extends PluginPanel {
     {"herbBasalt", "Basalts", "Stony basalt"},
     {"herbTrollheim", "Trollheim tablet", "Trollheim teleport"},
     {"herbHarmonyTab", "Harmony tablet", "Harmony island teleport"},
+    {"herbSack", "Herb sack", "Herb sack"},
     {"gnome", "Spirit trees", "Spirit sapling"},
     {"lletya", "Teleport crystal", "Teleport crystal"},
     {"jewellery", "Jewellery box", "Skills necklace"},
@@ -1719,6 +1727,7 @@ final class FarmingPanel extends PluginPanel {
 {"herbBasalt", "Stony and icy basalt", "Bring consumable basalts."},
 {"herbTrollheim", "Trollheim tablet", "Requires teleport unlock."},
 {"herbHarmonyTab", "Harmony island tablet", "Bring Harmony island teleport."},
+{"herbSack", "Herb sack", "Open, it holds 30 of each herb before your inventory, so less noting."},
         {"gnome", "Spirit tree network", "Tree Gnome Village and Gnome Stronghold access."},
         {
           "lletya",
