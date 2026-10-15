@@ -36,7 +36,7 @@ final class FarmingAlertOverlay extends Overlay {
   @Override
   public Dimension render(Graphics2D g) {
     if (!config.highlight() || client.getGameState() != GameState.LOGGED_IN) return null;
-    String message = plugin.secateursAlert() ? "Wield your magic secateurs!" : null;
+    String message = plugin.targets().secateursAlert() ? "Wield your magic secateurs!" : null;
     if (message == null) return null;
     // Pulse between half and full strength about once a second.
     double phase = (System.currentTimeMillis() % 1000) / 1000.0;

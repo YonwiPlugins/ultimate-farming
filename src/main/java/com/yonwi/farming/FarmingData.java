@@ -441,4 +441,16 @@ PATCHES.add(new Patch("herbguild", "Farming Guild", "herb"));
     int[] values = IDS.get(name);
     return values == null || values.length == 0 ? 0 : values[0];
   }
+
+  /** Every item ID (charge and tier variants) for these item names. */
+  static Set<Integer> itemIds(List<String> names) {
+    Set<Integer> ids = new HashSet<>();
+    for (String raw : names)
+      for (int id : IDS.getOrDefault(FarmingPlanner.normalize(raw), new int[0])) ids.add(id);
+    return ids;
+  }
+
+  static Set<Integer> itemIds(String name) {
+    return itemIds(Collections.singletonList(name));
+  }
 }

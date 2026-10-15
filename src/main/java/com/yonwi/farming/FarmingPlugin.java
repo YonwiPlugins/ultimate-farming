@@ -2,243 +2,72 @@ package com.yonwi.farming;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.GradientPaint;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.geom.Path2D;
-import java.awt.image.BufferedImage;
-import java.util.*;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
-import net.runelite.api.*;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.MenuAction;
+import net.runelite.api.Player;
+import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
-import net.runelite.api.coords.WorldPoint;
-import net.runelite.api.events.*;
+import net.runelite.api.TileObject;
+import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.DecorativeObjectDespawned;
+import net.runelite.api.events.DecorativeObjectSpawned;
+import net.runelite.api.events.GameObjectDespawned;
+import net.runelite.api.events.GameObjectSpawned;
 import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.GroundObjectDespawned;
+import net.runelite.api.events.GroundObjectSpawned;
+import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.MenuOptionClicked;
+import net.runelite.api.events.NpcDespawned;
+import net.runelite.api.events.NpcSpawned;
+import net.runelite.api.events.PostClientTick;
+import net.runelite.api.events.PostMenuSort;
+import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.StatChanged;
+import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.events.WidgetClosed;
+import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.SpotanimID;
 import net.runelite.api.gameval.VarbitID;
-import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.JavaScriptCallback;
-import net.runelite.api.widgets.WidgetType;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.events.ProfileChanged;
 import net.runelite.client.game.ItemManager;
-import net.runelite.client.events.PluginMessage;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.banktags.BankTagsPlugin;
-import net.runelite.client.plugins.banktags.BankTagsService;
-import net.runelite.client.plugins.banktags.TagManager;
-import net.runelite.client.plugins.banktags.tabs.Layout;
-import net.runelite.client.plugins.banktags.tabs.LayoutManager;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
-
 import net.runelite.client.util.Text;
 
+/**
+ * Starts and stops everything, and passes the game's events to the part that handles them. The
+ * sidebar (on Swing's thread) chooses the run; the parts below (on the client thread) guide it.
+ */
 @PluginDescriptor(
     name = "Ultimate Farming",
     description = "Mixed tree routes, farming kit and personal run times",
     tags = {"farming", "tree", "fruit", "route"})
 @PluginDependency(BankTagsPlugin.class)
 public class FarmingPlugin extends Plugin {
-  private static final String BANK_TAG = "ultimate farming";
-  @Inject private TagManager tagManager;
-  @Inject private BankTagsService bankTags;
-  @Inject private LayoutManager layoutManager;
-  /** Kit item names in Kit tab order (wear, then bring), for the bank layout. */
-  private volatile List<String> kitOrder = Collections.emptyList();
-  private volatile Map<String, Integer> kitCounts = Collections.emptyMap();
+  /** How long the "plants still be growin'" line stays on the overlay after a run. */
+  private static final long IDLE_SHOWN_MS = 15_000;
+  /** Our own key for the fireworks animation on the player. */
+  private static final int FIREWORKS_KEY = 0x0F4A11;
 
-  /** True while the bank shows this plugin's kit filter. */
-  boolean kitFilterOpen() {
-    return BANK_TAG.equals(bankTags.getActiveTag());
-  }
-
-  /** How many of this item ID the run needs, or 0. */
-  int kitCount(int id) {
-    String name = kitName(id);
-    return name == null ? 0 : kitCounts.get(name);
-  }
-
-  /**
-   * Before a run: rune item IDs the run still needs that you aren't carrying (pouch + inventory),
-   * when your rune pouch is in the inventory, so it can be set up. Empty otherwise.
-   */
-  Set<Integer> pouchShortfall() {
-    if (guidance != null || missing.isEmpty()) return Collections.emptySet();
-    Set<Integer> pouch = itemIds(Collections.singletonList("Rune pouch"));
-    ItemContainer inv = client.getItemContainer(InventoryID.INV);
-    boolean carried = false;
-    if (inv != null) for (Item item : inv.getItems()) carried |= pouch.contains(item.getId());
-    if (!carried) return Collections.emptySet();
-    // A full pouch of this run's runes (e.g. 3 kinds when it needs 4): the rest go loose in the
-    // inventory, and the bank's kit filter already shows them unticked, so nothing to set up.
-    Set<Integer> needed = runesNeeded(), inPouch = new HashSet<>();
-    for (Map.Entry<Integer, Integer> rune : pouchRunes().entrySet())
-      if (rune.getValue() > 0) inPouch.add(rune.getKey());
-    if (inPouch.size() >= pouchKinds() && needed.containsAll(inPouch)) return Collections.emptySet();
-    Set<Integer> shortRunes = new HashSet<>();
-    for (String name : kitCounts.keySet()) {
-      if (!name.endsWith(" rune")) continue;
-      int id = FarmingData.id(name);
-      if (id > 0 && kitRemaining(id) > 0) shortRunes.add(id);
-    }
-    return shortRunes;
-  }
-
-  /** How many kinds of rune your pouch holds: 4 in a divine rune pouch, else 3. */
-  int pouchKinds() {
-    ItemContainer inv = client.getItemContainer(InventoryID.INV);
-    if (inv != null)
-      for (Item item : inv.getItems())
-        if (item.getId() == net.runelite.api.gameval.ItemID.DIVINE_RUNE_POUCH
-            || item.getId() == net.runelite.api.gameval.ItemID.DIVINE_RUNE_POUCH_TROUVER) return 4;
-    return 3;
-  }
-
-  /** What each overlay highlighted last, so the debug log gets a line only when it changes. */
-  private final Map<String, String> lastHighlights = new HashMap<>();
-
-  /** Debug: logs what an overlay highlights, and in which colour, whenever that changes. */
-  void noteHighlights(String overlay, String what) {
-    if (!config.debug() || what.equals(lastHighlights.get(overlay))) return;
-    lastHighlights.put(overlay, what);
-    debugLog("highlights (" + overlay + "): " + (what.isEmpty() ? "none" : what));
-  }
-
-  /** Rune item IDs the run needs, whether or not you have them yet. */
-  Set<Integer> runesNeeded() {
-    Set<Integer> ids = new HashSet<>();
-    for (String name : kitCounts.keySet())
-      if (name.endsWith(" rune")) {
-        int id = FarmingData.id(name);
-        if (id > 0) ids.add(id);
-      }
-    return ids;
-  }
-
-  /** One line telling you what to do with the rune pouch at the bank, or null. */
-  private volatile String pouchHint;
-
-  void setPouchHint(String hint) {
-    pouchHint = hint;
-  }
-
-  String pouchHint() {
-    return pouchShortfall().isEmpty() ? null : pouchHint;
-  }
-
-  /** Picking herbs right now, with the magic secateurs in the inventory instead of wielded. */
-  boolean secateursAlert() {
-    Guidance step = guidance;
-    return step != null
-        && step.phase.equals("Harvest")
-        && step.items.contains("Magic secateurs")
-        && !deadPatch
-        && secateursToWield();
-  }
-
-  /** Harvesting is now or next, the secateurs are wanted, and they're in the inventory unworn. */
-  boolean secateursToWield() {
-    Guidance step = guidance;
-    if (step == null) return false;
-    boolean harvestSoon =
-        step.phase.equals("Harvest") && step.items.contains("Magic secateurs")
-            || "Harvest".equals(step.nextPhase) && step.nextItems.contains("Magic secateurs");
-    if (!harvestSoon) return false;
-    Set<Integer> ids = itemIds(Collections.singletonList("Magic secateurs"));
-    ItemContainer inv = client.getItemContainer(InventoryID.INV);
-    if (inv == null) return false;
-    for (Item item : inv.getItems()) if (ids.contains(item.getId())) return true;
-    return false;
-  }
-
-  /** The kit item name this item ID counts as, or null. */
-  private String kitName(int id) {
-    for (Map.Entry<String, Integer> e : kitCounts.entrySet())
-      for (int known : FarmingData.IDS.getOrDefault(e.getKey(), new int[0]))
-        if (known == id) return e.getKey();
-    return null;
-  }
-
-  /**
-   * How many more of this kit item you still need to take out of the bank: what the run needs
-   * minus what's in your inventory, worn, or (for runes) in the rune pouch. -1 if it isn't kit.
-   */
-  int kitRemaining(int id) {
-    String name = kitName(id);
-    if (name == null) return -1;
-    int need = kitCounts.get(name);
-    int have = 0;
-    Set<Integer> ids = new HashSet<>();
-    for (int known : FarmingData.IDS.getOrDefault(name, new int[0])) ids.add(known);
-    for (int container : new int[] {InventoryID.INV, InventoryID.WORN}) {
-      ItemContainer items = client.getItemContainer(container);
-      if (items == null) continue;
-      for (Item item : items.getItems())
-        if (item.getId() > 0 && ids.contains(itemManager.canonicalize(item.getId())))
-          have += item.getQuantity();
-    }
-    if (name.endsWith(" rune"))
-      for (Map.Entry<Integer, Integer> rune : pouchRunes().entrySet())
-        if (ids.contains(rune.getKey())) have += rune.getValue();
-    return Math.max(0, need - have);
-  }
-
-  /**
-   * One slot per kit item, in Kit tab order. Each slot uses the variant you actually have in the
-   * bank or inventory (e.g. your ring of wealth's charge), so it shows that item or its
-   * placeholder.
-   */
-  private int[] kitLayout() {
-    Set<Integer> have = new HashSet<>();
-    if (bank != null) have.addAll(bank);
-    // Inventory and worn too: an axe or whistle you're wearing is one you own.
-    for (int container : new int[] {InventoryID.INV, InventoryID.WORN}) {
-      ItemContainer items = client.getItemContainer(container);
-      if (items != null)
-        for (Item i : items.getItems()) if (i.getId() > 0) have.add(itemManager.canonicalize(i.getId()));
-    }
-    List<Integer> slots = new ArrayList<>(), seeds = new ArrayList<>();
-    Set<Integer> hidden = new HashSet<>();
-    List<String> names = new ArrayList<>(kitOrder);
-    if (capeNeeded) names.add("Magic cape"); // to switch spellbook before the run
-    for (String name : names) {
-      int[] ids = FarmingData.IDS.getOrDefault(name, new int[0]);
-      if (ids.length == 0) continue;
-      int chosen = FarmingData.bestOwned(name, have);
-      if (chosen <= 0) chosen = ids[0];
-      boolean seed = name.endsWith(" seed") || name.endsWith(" sapling");
-      if (!slots.contains(chosen) && !seeds.contains(chosen)) (seed ? seeds : slots).add(chosen);
-      // One quetzal whistle is enough: show the best you own and hide the rest (IDS lists the
-      // best first).
-      if (name.equals("Quetzal whistle") || name.equals("Axe"))
-        for (int id : ids) if (id != chosen) hidden.add(id);
-    }
-    hiddenVariants = hidden;
-    // Seeds and saplings start the second row (slot 9): the first row is the outfit you put on,
-    // so they're the first thing withdrawn into the inventory.
-    if (!seeds.isEmpty()) {
-      int at = Math.min(8, slots.size());
-      while (at < 8) {
-        slots.add(-1);
-        at++;
-      }
-      slots.addAll(8, seeds);
-    }
-    return slots.stream().mapToInt(Integer::intValue).toArray();
-  }
   @Inject private Client client;
   @Inject private ClientThread clientThread;
   @Inject private ItemManager itemManager;
@@ -246,289 +75,129 @@ public class FarmingPlugin extends Plugin {
   @Inject private ClientToolbar toolbar;
   @Inject private Gson gson;
   @Inject private OverlayManager overlays;
+  @Inject private FarmingConfig config;
+
   @Inject private FarmingInfoOverlay infoOverlay;
   @Inject private FarmingHighlightOverlay highlightOverlay;
   @Inject private FarmingInventoryOverlay inventoryOverlay;
   @Inject private FarmingDebugOverlay debugOverlay;
   @Inject private FarmingAlertOverlay alertOverlay;
   @Inject private FarmingTimerOverlay timerOverlay;
-  @Inject private FarmingConfig config;
-  @Inject private net.runelite.client.eventbus.EventBus eventBus;
-  @Inject private net.runelite.client.plugins.PluginManager pluginManager;
+
+  @Inject private DebugLog debug;
+  @Inject private DebugTools debugTools;
+  @Inject private SceneTracker scene;
+  @Inject private AccountItems account;
+  @Inject private KitTracker kit;
+  @Inject private BankButton bankButton;
+  @Inject private SpellbookSwitch spellbook;
+  @Inject private GuidedPatch patch;
+  @Inject private StepProgress progress;
+  @Inject private Targets targets;
+  @Inject private HarvestTracker harvest;
+  @Inject private NotingAdvice noting;
+  @Inject private RouteLine route;
+  @Inject private MenuSwaps menuSwaps;
+  @Inject private FairyRingLog fairyRingLog;
+  @Inject private PatchEvents patchEvents;
+
   private volatile Guidance guidance;
-  private final Set<TileObject> sceneObjects = Collections.newSetFromMap(new IdentityHashMap<>());
-  private final Set<NPC> sceneNpcs = Collections.newSetFromMap(new IdentityHashMap<>());
-  private List<TileObject> objectHighlights = Collections.emptyList();
-  private List<NPC> npcHighlights = Collections.emptyList();
-  private List<TileObject> nextObjects = Collections.emptyList();
-  private List<NPC> nextNpcs = Collections.emptyList();
-  private WorldPoint lastLocation;
-  private Set<Integer> bank;
-  private boolean scanDue;
-  private int ticks;
-  private String lastDialog;
-  /** The guided patch object, found each tick while nearby. */
-  private TileObject patchObject;
-  /** Whether the guided patch currently offers "Rake", i.e. has weeds to clear. */
-  private volatile boolean needsRake;
-  /** Tree types whose gardener clears the old tree for a fee. */
-  static final Set<String> GARDENER_REMOVAL =
-      new HashSet<>(Arrays.asList("tree", "fruit", "redwood", "hardwood"));
-  private int grimyCount = -1, barkCount = -1;
-  /**
-   * Open herb sacks: picked grimy herbs go straight in, not into the inventory, up to 30 of each
-   * herb (OSRS wiki; assumed the same for the silk sack).
-   */
-  private static final Set<Integer> OPEN_HERB_SACKS =
-      new HashSet<>(
-          Arrays.asList(
-              net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK_OPEN,
-              net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK_SILK_OPEN));
-  private static final Set<Integer> SHUT_HERB_SACKS =
-      new HashSet<>(
-          Arrays.asList(
-              net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK,
-              net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK_SILK));
-  static final int HERB_SACK_SIZE = 30;
-  /**
-   * Herbs picked into the open sack since the bank was last open (where it's assumed emptied). It
-   * can't be read from the game, so it's counted: Farming XP with no new grimy herb in the bag.
-   */
-  private int sackHerbs;
-  private long farmingXp = -1;
-  /** This tick: Farming XP went up, grimy herbs in the inventory went up. */
-  private boolean xpGained, grimyGained;
-  private boolean wasPickable;
-  /** Unnoted grimy herbs, whose count rising means a herb was just picked. */
-  private static final Set<Integer> GRIMY = new HashSet<>();
-
-  static Set<Integer> grimyHerbs() {
-    return GRIMY;
-  }
-
-  static {
-    for (Crop c : FarmingData.CROPS.get("herb"))
-      for (int id : FarmingData.IDS.getOrDefault(c.fruit, new int[0])) GRIMY.add(id);
-  }
-  private volatile Set<Integer> kitItems = Collections.emptySet();
-  private volatile boolean bankUnknown;
-  private Widget bankButton, bankIcon;
-  private volatile List<String> missing = Collections.emptyList();
+  private FarmingPanel panel;
+  private NavigationButton navigation;
+  private volatile boolean active;
+  /** Between runs: when the plants will be ready, or that they are. */
+  private volatile String idleMessage;
+  /** When the idle line leaves the overlay. */
+  private volatile long idleShownUntil;
+  /** The run timer's text while a run is timed, else null (for the optional timer overlay). */
+  private volatile String runTime;
 
   @Provides
   FarmingConfig config(ConfigManager manager) {
     return manager.getConfig(FarmingConfig.class);
   }
 
+  /** The step being guided, or null between runs (or before the bank). */
   Guidance guide() {
     return guidance;
   }
 
-  List<TileObject> highlightObjects() {
-    return objectHighlights;
+  boolean isActive() {
+    return active;
   }
 
-  List<NPC> highlightNpcs() {
-    return npcHighlights;
+  FarmingConfig config() {
+    return config;
   }
 
-  /** Targets for the substep after the current one, drawn in orange. */
-  List<TileObject> nextObjects() {
-    return nextObjects;
+  DebugLog debug() {
+    return debug;
   }
 
-  List<NPC> nextNpcs() {
-    return nextNpcs;
+  DebugTools debugTools() {
+    return debugTools;
   }
 
-  private NPC debugGardener;
-  private final java.util.Deque<String> events = new ArrayDeque<>();
-
-  private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(FarmingPlugin.class);
-
-  /** With the debug setting on: a line in RuneLite's client.log, prefixed "[UF]". */
-  private void debugLog(String text) {
-    if (config.debug()) LOG.info("[UF] {}", text);
+  SceneTracker scene() {
+    return scene;
   }
 
-  /** Remembers the last few detected events for the debug box. */
-  private void event(String text) {
-    String line = text.length() > 40 ? text.substring(0, 40) + "…" : text;
-    if (line.equals(events.peekFirst())) return;
-    debugLog("event: " + text);
-    events.addFirst(line);
-    while (events.size() > 4) events.removeLast();
+  AccountItems account() {
+    return account;
   }
 
-  /** What the plugin currently believes, for the debug box. Called on the client thread. */
-  List<String> debugLines() {
-    List<String> lines = new ArrayList<>();
-    Guidance step = guidance;
-    Player player = client.getLocalPlayer();
-    // Where you're standing, e.g. to map a new shortcut or patch.
-    if (player != null) {
-      WorldPoint at = player.getWorldLocation();
-      lines.add("tile " + at.getX() + ", " + at.getY() + ", " + at.getPlane() + " · region " + at.getRegionID());
-    }
-    if (step == null) lines.add("No step (bank first or no route)");
-    else {
-      lines.add(
-          step.patchId + " · " + step.phase + " (" + (step.phaseIndex + 1) + "/"
-              + step.phases.size() + ") next " + step.nextPhase);
-      lines.add("travel multi-leg " + multiLeg(step.travel) + " · rake " + needsRake);
-      if (player != null) lines.add("arrived " + arrived(step.patchId, player));
-      if (holdingUnnoted(OPEN_HERB_SACKS))
-        lines.add("herb sack " + sackHerbs + "/" + HERB_SACK_SIZE + " (counted since the bank)");
-      if (step.phase.startsWith("Note"))
-        lines.add("unnoted held " + holdingUnnoted(itemIds(step.items)));
-    }
-    if (player != null) {
-      WorldPoint p = player.getWorldLocation();
-      lines.add(
-          "you " + p.getX() + "," + p.getY() + "," + p.getPlane() + " region " + p.getRegionID()
-              + (client.getTopLevelWorldView().isInstance() ? " (instance)" : ""));
-    }
-    TileObject patch = patchObject;
-    if (patch == null) lines.add("patch: not found");
-    else {
-      ObjectComposition base = client.getObjectDefinition(patch.getId());
-      ObjectComposition c = base.getImpostorIds() != null ? base.getImpostor() : base;
-      lines.add(
-          "patch " + patch.getId() + " -> "
-              + (c == null ? "?" : c.getId() + " '" + c.getName() + "'"));
-      if (c != null) {
-        List<String> actions = new ArrayList<>();
-        for (String a : c.getActions()) if (a != null) actions.add(a);
-        lines.add("actions " + String.join("/", actions));
-      }
-    }
-    lines.add(
-        "gardener " + (debugGardener == null ? "none" : debugGardener.getId()) + " · lep "
-            + (npcHighlights.isEmpty() && nextNpcs.isEmpty() ? "-" : "lit"));
-    // While a quetzal map is open, list its destination icons so the highlight can be checked.
-    for (int id : new int[] {InterfaceID.QuetzalwhistleMenu.ICONS, InterfaceID.QuetzalMenu.ICONS}) {
-      Widget icons = client.getWidget(id);
-      Widget[] children = icons == null || icons.isHidden() ? null : icons.getDynamicChildren();
-      if (children == null) continue;
-      List<String> names = new ArrayList<>();
-      for (Widget w : children)
-        if (w != null && w.getName() != null && !w.getName().isEmpty())
-          names.add(Text.removeTags(w.getName()));
-      lines.add("quetzal icons: " + String.join(", ", names));
-    }
-    if (!overlayHint.isEmpty()) lines.add("hint: " + overlayHint);
-    for (String e : events) lines.add("> " + e);
-    return lines;
+  KitTracker kit() {
+    return kit;
   }
 
-  /** Item IDs (all charge and tier variants) used by the guided action. */
-  Set<Integer> itemIds(Guidance step) {
-    // Travelling: never the coins (a boat fare is paid in the chat), so a spell route shows the
-    // magic tab and spell rather than your coin stack.
-    if (step.phase.equals("Travel")) {
-      Set<Integer> ids = new HashSet<>(usableIds(step.items));
-      ids.removeAll(itemIds(Collections.singletonList("Coins")));
-      return ids;
-    }
-    // Paying the gardener: just him, never the coins or the payment.
-    if (step.phase.equals("Protect")) return Collections.emptySet();
-    // Clearing a tree yourself: nothing to highlight in the inventory. Chop it down (the axe is
-    // used from the inventory), then Clear on the stump or bare tree uses the spade by itself.
-    if (step.phase.equals("Clear")) return Collections.emptySet();
-    // Dead herbs: nothing to pick, so no secateurs; just Clear (or Resurrect Crops) on the patch.
-    if (step.phase.equals("Harvest") && deadPatch) return Collections.emptySet();
-    return usableIds(step.items);
+  BankButton bankButton() {
+    return bankButton;
   }
 
-  /** The unnoted produce to note at the leprechaun on this step: grimy herbs, fruit or bark. */
-  Set<Integer> noteItems() {
-    Guidance step = guidance;
-    if (step == null || step.kind.equals("herb")) return GRIMY;
-    return step.produce.isEmpty()
-        ? Collections.emptySet()
-        : itemIds(Collections.singletonList(step.produce));
+  SpellbookSwitch spellbook() {
+    return spellbook;
   }
 
-  /** Whether you clear this patch yourself (no gardener removal), e.g. Celastrus and Calquat. */
-  boolean selfClear(Guidance step) {
-    return !GARDENER_REMOVAL.contains(step.kind) || deadPatch;
+  GuidedPatch patch() {
+    return patch;
   }
 
-  /** The guided tree can still be chopped down (before it's a stump). */
-  private volatile boolean patchChoppable;
-
-  /** Whether an object (resolved through its impostor) has this right-click option. */
-  private boolean offers(TileObject object, String option) {
-    if (object == null) return false;
-    ObjectComposition c = client.getObjectDefinition(object.getId());
-    if (c != null && c.getImpostorIds() != null) c = c.getImpostor();
-    if (c == null) return false;
-    for (String action : c.getActions()) if (option.equalsIgnoreCase(action)) return true;
-    return false;
+  StepProgress progress() {
+    return progress;
   }
 
-  /** The inventory overlay's last decision, shown in the debug box. */
-  private volatile String overlayHint = "";
-
-  void setOverlayHint(String hint) {
-    overlayHint = hint;
+  Targets targets() {
+    return targets;
   }
 
-  /** The guided patch has weeds: raking it is a single click on the patch. */
-  boolean needsRake() {
-    return needsRake;
+  HarvestTracker harvest() {
+    return harvest;
   }
 
-  /** Item IDs to highlight, leaving the rake out unless the patch actually has weeds. */
-  Set<Integer> usableIds(List<String> names) {
-    List<String> wanted = new ArrayList<>(names);
-    if (!needsRake) wanted.remove("Rake");
-    return itemIds(wanted);
+  NotingAdvice noting() {
+    return noting;
   }
 
-  static Set<Integer> itemIds(List<String> names) {
-    Set<Integer> ids = new HashSet<>();
-    for (String raw : names)
-      for (int id : FarmingData.IDS.getOrDefault(FarmingPlanner.normalize(raw), new int[0]))
-        ids.add(id);
-    return ids;
+  RouteLine route() {
+    return route;
   }
 
-  /** Whether the player has one of these items selected, ready to use on a patch. */
-  boolean selectedItem(Set<Integer> ids) {
-    // Just used on the patch (or NPC) for this step: it stays "selected" while you walk over, so
-    // it doesn't light up again until the step finishes (or ~6 seconds pass with nothing).
-    Guidance step = guidance;
-    // Only the step's own item (seed, sapling, compost): herbs used on a leprechaun mustn't hide
-    // the next teleport. (Unknown item: as before.)
-    if (step != null
-        && (step.patchId + step.phase).equals(usedOnStep)
-        && client.getTickCount() - usedOnTick <= 10
-        && (usedItem < 0 || ids.contains(usedItem))) return true;
-    if (!client.isWidgetSelected()) return false;
-    Widget selected = client.getSelectedWidget();
-    return selected != null && ids.contains(selected.getItemId());
+  String runTime() {
+    return runTime;
   }
 
-  /** When an item was last used on an object or NPC, and on which step. */
-  private int usedOnTick = -100;
-
-  private String usedOnStep;
-
-  /** The item last used on an object or NPC, or -1 if not known. */
-  private int usedItem = -1;
-
-  List<String> missingItems() {
-    return missing;
+  /** Between runs: shown briefly after a run, then the overlay gets out of the way; the sidebar keeps it. */
+  String idleMessage() {
+    return System.currentTimeMillis() < idleShownUntil ? idleMessage : null;
   }
 
-  boolean bankUnknown() {
-    return bankUnknown;
+  /** Runs something on the sidebar, on Swing's thread, while the plugin and sidebar are up. */
+  void toPanel(Consumer<FarmingPanel> action) {
+    SwingUtilities.invokeLater(
+        () -> {
+          if (active && panel != null) action.accept(panel);
+        });
   }
-
-  private FarmingPanel panel;
-  private NavigationButton navigation;
-  private volatile boolean active;
 
   @Override
   protected void startUp() {
@@ -539,56 +208,17 @@ public class FarmingPlugin extends Plugin {
     overlays.add(debugOverlay);
     overlays.add(alertOverlay);
     overlays.add(timerOverlay);
-    tagManager.registerTag(
-        BANK_TAG,
-        id ->
-            !hiddenVariants.contains(id)
-                && (kitItems.contains(id) || capeNeeded && MAGIC_CAPES.contains(id)));
+    bankButton.registerFilter();
     clientThread.invoke(this::seedScene);
     SwingUtilities.invokeLater(
         () -> {
           if (!active) return;
-          panel =
-              new FarmingPanel(
-                  itemManager,
-                  clientThread,
-                  configManager,
-                  gson,
-                  g -> {
-                    guidance = g;
-                    // Redraw targets straight away instead of waiting for the next game tick.
-                    clientThread.invoke(this::refreshHighlights);
-                  },
-                  ids -> kitItems = ids,
-                  list -> missing = list);
-          panel.setOnFinish(this::celebrate);
-          panel.setIdleMessage(m -> idleMessage = m);
-          panel.setTimeListener(t -> runTime = t);
-          panel.setKitOrder(
-              names -> {
-                boolean changed = !names.equals(kitOrder);
-                kitOrder = names;
-                // The run changed while the bank shows the kit: show the new kit, not the old one.
-                if (changed)
-                  clientThread.invokeLater(
-                      () -> {
-                        if (active && kitFilterOpen() && client.getWidget(InterfaceID.Bankmain.UNIVERSE) != null)
-                          refreshKitFilter();
-                      });
-              });
-          panel.setKitCounts(counts -> kitCounts = counts);
-          panel.setPreparing(
-              now -> {
-                boolean was = preparing;
-                preparing = now;
-                // The bank button only shows while preparing: add or remove it as that changes.
-                if (was != now) clientThread.invokeLater(this::updateBankButton);
-              });
+          panel = createPanel();
           navigation =
               NavigationButton.builder()
                   .tooltip("Ultimate Farming")
                   .priority(6)
-                  .icon(leafIcon())
+                  .icon(Icons.leaf())
                   .panel(panel)
                   .build();
           toolbar.addNavigation(navigation);
@@ -596,113 +226,44 @@ public class FarmingPlugin extends Plugin {
         });
   }
 
-  /** A green leaf filling the whole 16px sidebar slot, corner to corner. */
-  static BufferedImage leafIcon() {
-    BufferedImage icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-    Graphics2D g = icon.createGraphics();
-    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-    g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-    Path2D leaf = new Path2D.Double();
-    leaf.moveTo(1.5, 14.5);
-    leaf.curveTo(0.5, 6, 6, 0.5, 15.5, 0.5);
-    leaf.curveTo(15.5, 10, 10, 15.5, 1.5, 14.5);
-    leaf.closePath();
-    g.setPaint(
-        new GradientPaint(2, 14, new Color(62, 132, 58), 14, 2, new Color(152, 214, 104)));
-    g.fill(leaf);
-    g.setColor(new Color(36, 84, 38));
-    g.setStroke(new BasicStroke(0.9f));
-    g.draw(leaf);
-    g.setColor(new Color(214, 240, 170, 220));
-    g.setStroke(new BasicStroke(1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-    g.draw(new java.awt.geom.QuadCurve2D.Double(0.5, 15.5, 7, 9.5, 13.5, 2.5));
-    g.dispose();
-    return icon;
+  private FarmingPanel createPanel() {
+    FarmingPanel created =
+        new FarmingPanel(
+            itemManager,
+            clientThread,
+            configManager,
+            gson,
+            step -> {
+              guidance = step;
+              // Redraw targets straight away instead of waiting for the next game tick.
+              clientThread.invoke(targets::refresh);
+            },
+            kit::setItems,
+            kit::setMissing);
+    created.setOnFinish(this::celebrate);
+    created.setIdleMessage(message -> idleMessage = message);
+    created.setTimeListener(time -> runTime = time);
+    created.setKitOrder(this::kitOrderChanged);
+    created.setKitCounts(kit::setCounts);
+    created.setPreparing(bankButton::setPreparing);
+    return created;
   }
 
-  private void refreshLevel() {
-    clientThread.invoke(
+  /** The run changed while the bank shows the kit: show the new kit, not the old one. */
+  private void kitOrderChanged(List<String> names) {
+    if (!kit.setOrder(names)) return;
+    clientThread.invokeLater(
         () -> {
-          if (!active || client.getGameState() != GameState.LOGGED_IN) return;
-          int level = client.getRealSkillLevel(Skill.FARMING);
-          long xp = client.getSkillExperience(Skill.FARMING);
-          SwingUtilities.invokeLater(
-              () -> {
-                if (!active || panel == null) return;
-                panel.updateXp(xp);
-                panel.updateLevel(level);
-              });
+          if (active && bankButton.filterOpen() && bankButton.bankOpen()) bankButton.refreshFilter();
         });
-  }
-
-  @Subscribe
-  public void onGameStateChanged(GameStateChanged e) {
-    if (e.getGameState() == GameState.LOGGED_IN) {
-      refreshLevel();
-      seedScene();
-      scanDue = true;
-    } else if (e.getGameState() == GameState.LOADING
-        || e.getGameState() == GameState.LOGIN_SCREEN) {
-      loadedAtTick = client.getTickCount();
-      if (e.getGameState() == GameState.LOGIN_SCREEN) {
-        bank = null;
-        grimyCount = -1;
-        farmingXp = -1;
-      }
-      sceneObjects.clear();
-      sceneNpcs.clear();
-      objectHighlights = Collections.emptyList();
-      npcHighlights = Collections.emptyList();
-    }
-  }
-
-  /**
-   * Switching RuneLite profile doesn't restart the plugin, so the sidebar would otherwise keep the
-   * old profile's records and settings and save them over the new one's.
-   */
-  @Subscribe
-  public void onProfileChanged(net.runelite.client.events.ProfileChanged e) {
-    guidance = null;
-    SwingUtilities.invokeLater(
-        () -> {
-          if (active && panel != null) panel.reload();
-        });
-    clientThread.invoke(() -> scanDue = true);
-  }
-
-  @Subscribe
-  public void onConfigChanged(net.runelite.client.events.ConfigChanged e) {
-    if (!FarmingPanel.GROUP.equals(e.getGroup()) || !"netTotals".equals(e.getKey())) return;
-    SwingUtilities.invokeLater(
-        () -> {
-          if (active && panel != null) panel.refreshBanner();
-        });
-  }
-
-  @Subscribe
-  public void onStatChanged(StatChanged e) {
-    if (e.getSkill() != Skill.FARMING) return;
-    if (farmingXp >= 0 && e.getXp() > farmingXp) xpGained = true;
-    farmingXp = e.getXp();
-    refreshLevel();
   }
 
   @Override
   protected void shutDown() {
     active = false;
     guidance = null;
-    tagManager.unregisterTag(BANK_TAG);
-    clientThread.invoke(
-        () -> {
-          if (BANK_TAG.equals(bankTags.getActiveTag())) bankTags.closeBankTag();
-          Widget universe = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
-          if (bankButton != null && universe != null) {
-            bankButton.setHidden(true);
-            if (bankIcon != null) bankIcon.setHidden(true);
-            universe.revalidate();
-          }
-          bankButton = null;
-        });
+    bankButton.unregisterFilter();
+    clientThread.invoke(bankButton::remove);
     overlays.remove(infoOverlay);
     overlays.remove(highlightOverlay);
     overlays.remove(inventoryOverlay);
@@ -711,10 +272,8 @@ public class FarmingPlugin extends Plugin {
     overlays.remove(timerOverlay);
     clientThread.invoke(
         () -> {
-          sceneObjects.clear();
-          sceneNpcs.clear();
-          objectHighlights = Collections.emptyList();
-          npcHighlights = Collections.emptyList();
+          scene.clear();
+          targets.clear();
         });
     SwingUtilities.invokeLater(
         () -> {
@@ -725,2359 +284,217 @@ public class FarmingPlugin extends Plugin {
         });
   }
 
-  private void remember(TileObject object) {
-    if (object == null) return;
-    ObjectComposition c = client.getObjectDefinition(object.getId());
-    if (c == null) return;
-    String n = c.getName();
-    if (c.getImpostorIds() != null
-        || n != null
-            && (n.toLowerCase(Locale.ROOT).contains("tree")
-                || n.toLowerCase(Locale.ROOT).contains("patch")
-                || n.toLowerCase(Locale.ROOT).contains("fairy ring")
-                || n.toLowerCase(Locale.ROOT).contains("railing")
-                || n.toLowerCase(Locale.ROOT).contains("portal")
-                || n.toLowerCase(Locale.ROOT).contains("jewellery box")
-                || n.toLowerCase(Locale.ROOT).contains("gangplank")
-                || n.toLowerCase(Locale.ROOT).contains("rowboat")
-                || n.toLowerCase(Locale.ROOT).contains("altar"))) sceneObjects.add(object);
-  }
-
   private void seedScene() {
-    if (!active || client.getGameState() != GameState.LOGGED_IN) return;
-    sceneObjects.clear();
-    sceneNpcs.clear();
-    for (NPC npc : client.getTopLevelWorldView().npcs()) sceneNpcs.add(npc);
-    Tile[][][] tiles = client.getTopLevelWorldView().getScene().getTiles();
-    for (Tile[][] plane : tiles)
-      for (Tile[] column : plane)
-        for (Tile tile : column)
-          if (tile != null) {
-            remember(tile.getGroundObject());
-            remember(tile.getDecorativeObject());
-            for (GameObject object : tile.getGameObjects()) remember(object);
-          }
+    if (active) scene.seed();
   }
 
-  @Subscribe
-  public void onGameObjectSpawned(GameObjectSpawned e) {
-    remember(e.getGameObject());
+  /** Sends your Farming level and XP to the sidebar. */
+  private void refreshLevel() {
+    clientThread.invoke(
+        () -> {
+          if (!active || client.getGameState() != GameState.LOGGED_IN) return;
+          int level = client.getRealSkillLevel(Skill.FARMING);
+          long xp = client.getSkillExperience(Skill.FARMING);
+          toPanel(
+              sidebar -> {
+                sidebar.updateXp(xp);
+                sidebar.updateLevel(level);
+              });
+        });
   }
 
-  @Subscribe
-  public void onGameObjectDespawned(GameObjectDespawned e) {
-    sceneObjects.remove(e.getGameObject());
-  }
-
-  @Subscribe
-  public void onGroundObjectSpawned(GroundObjectSpawned e) {
-    remember(e.getGroundObject());
-  }
-
-  @Subscribe
-  public void onGroundObjectDespawned(GroundObjectDespawned e) {
-    sceneObjects.remove(e.getGroundObject());
-  }
-
-  @Subscribe
-  public void onDecorativeObjectSpawned(DecorativeObjectSpawned e) {
-    remember(e.getDecorativeObject());
-  }
-
-  @Subscribe
-  public void onDecorativeObjectDespawned(DecorativeObjectDespawned e) {
-    sceneObjects.remove(e.getDecorativeObject());
-  }
-
-  @Subscribe
-  public void onNpcSpawned(NpcSpawned e) {
-    sceneNpcs.add(e.getNpc());
-  }
-
-  @Subscribe
-  public void onNpcDespawned(NpcDespawned e) {
-    sceneNpcs.remove(e.getNpc());
+  /** Level-up style fireworks on your character when a run is finished. Only you see them. */
+  private void celebrate() {
+    idleShownUntil = System.currentTimeMillis() + IDLE_SHOWN_MS;
+    clientThread.invoke(
+        () -> {
+          Player player = client.getLocalPlayer();
+          if (player != null) player.createSpotAnim(FIREWORKS_KEY, SpotanimID.LEVELUP_99_ANIM, 0, 0);
+        });
   }
 
   @Subscribe
   public void onGameTick(GameTick event) {
-    refreshHighlights();
-    countSackHerbs();
-    watchGardenerDialog();
-    checkProgress();
+    targets.refresh();
+    harvest.countSackHerbs();
+    patchEvents.watchGardenerDialog();
+    progress.check();
     if (config.debug()) {
-      debugScan();
-      trackLeg();
+      debugTools.scan();
+      debugTools.trackLeg();
     }
     // Nothing guided (between runs, bank first): don't leave a stale Shortest Path route.
     if (guidance == null) {
-      shortestPath(null);
-      resurrectTried.clear();
+      route.clearShortestPath();
+      progress.clearRun();
     }
-    refreshSpellbookSwitch();
-    if (scanDue || ++ticks % 100 == 0) scanAccount();
+    spellbook.refresh();
+    account.onTick();
+  }
+
+  @Subscribe
+  public void onGameStateChanged(GameStateChanged e) {
+    GameState state = e.getGameState();
+    if (state == GameState.LOGGED_IN) {
+      refreshLevel();
+      seedScene();
+      account.scanSoon();
+    } else if (state == GameState.LOADING || state == GameState.LOGIN_SCREEN) {
+      progress.sceneLoaded();
+      if (state == GameState.LOGIN_SCREEN) {
+        account.forgetBank();
+        harvest.reset();
+      }
+      scene.clear();
+      targets.clear();
+    }
   }
 
   /**
-   * A herb picked into an open herb sack never reaches the inventory, so it's spotted as Farming XP
-   * with no new grimy herb while the guided herb patch offers Pick (this tick or last, as the last
-   * herb empties it). It counts as picked, so the run timer starts and the herb is recorded. A herb
-   * reaching the inventory with the sack open means the sack is full.
+   * Switching RuneLite profile doesn't restart the plugin, so the sidebar would otherwise keep the
+   * old profile's records and settings and save them over the new one's.
    */
-  private void countSackHerbs() {
-    boolean xp = xpGained, grimy = grimyGained;
-    xpGained = grimyGained = false;
-    boolean pickable = offers(patchObject, "pick"), was = wasPickable;
-    wasPickable = pickable;
-    Guidance step = guidance;
-    if (!xp
-        || !(pickable || was)
-        || step == null
-        || !step.kind.equals("herb")
-        || !holdingUnnoted(OPEN_HERB_SACKS)) return;
-    if (grimy) {
-      if (sackHerbs < HERB_SACK_SIZE) event("herb sack full");
-      sackHerbs = HERB_SACK_SIZE;
-      return;
-    }
-    if (sackHerbs < HERB_SACK_SIZE) sackHerbs++;
-    event("herb into sack: " + sackHerbs + "/" + HERB_SACK_SIZE);
-    herbPicked(1);
+  @Subscribe
+  public void onProfileChanged(ProfileChanged e) {
+    guidance = null;
+    toPanel(FarmingPanel::reload);
+    clientThread.invoke(account::scanSoon);
   }
 
-  /** Room left in an open herb sack carried in the inventory (0 without one). */
-  private int sackRoom() {
-    return holdingUnnoted(OPEN_HERB_SACKS) ? Math.max(0, HERB_SACK_SIZE - sackHerbs) : 0;
+  @Subscribe
+  public void onConfigChanged(ConfigChanged e) {
+    if (!FarmingPanel.GROUP.equals(e.getGroup()) || !"netTotals".equals(e.getKey())) return;
+    toPanel(FarmingPanel::refreshBanner);
   }
 
-  static Set<Integer> shutHerbSacks() {
-    return SHUT_HERB_SACKS;
+  @Subscribe
+  public void onStatChanged(StatChanged e) {
+    if (e.getSkill() != Skill.FARMING) return;
+    harvest.farmingXpChanged(e.getXp());
+    refreshLevel();
   }
 
-  /**
-   * At a herb patch offering Pick with the herb sack carried shut (none open) and not yet full:
-   * open it first, so the herbs go in it instead of the inventory.
-   */
-  boolean openSackNow() {
-    Guidance step = guidance;
-    return step != null
-        && step.kind.equals("herb")
-        && step.phase.equals("Harvest")
-        && wasPickable
-        && !deadPatch
-        && sackHerbs < HERB_SACK_SIZE
-        && holdingUnnoted(SHUT_HERB_SACKS)
-        && !holdingUnnoted(OPEN_HERB_SACKS);
+  @Subscribe
+  public void onGameObjectSpawned(GameObjectSpawned e) {
+    scene.remember(e.getGameObject());
   }
 
-  /**
-   * Moves the guide on by itself each tick from the game's state: Travel ends on a teleport or on
-   * arrival, patch steps from what the patch currently is, and noting once nothing is left unnoted.
-   */
-  private void checkProgress() {
-    Guidance step = guidance;
-    Player player = client.getLocalPlayer();
-    if (step == null || player == null) return;
-    WorldPoint here = player.getWorldLocation(), before = lastLocation;
-    lastLocation = here;
-    if (step.phase.equals("Travel")) {
-      // A jump of many tiles in one tick is a teleport, so the teleport item is used up. Landing
-      // in the house (an instance) doesn't count: the house portal is still to come.
-      boolean inHouse = client.getTopLevelWorldView().isInstance();
-      boolean wasInHouse = lastInHouse;
-      lastInHouse = inHouse;
-      // Arriving in the house uses up the teleport that got you there: the next jump to count
-      // has to come from the nexus, ring, box or portal inside.
-      if (inHouse && !wasInHouse) {
-        stepTransportAt = -100;
-        leftHousePatch = null; // back inside
-        // Back in the house partway through the trip (e.g. for something forgotten): the route
-        // starts over from here, so its nexus, box, ring or tree is the thing to use again.
-        jumped = false;
-        teleportedThisLeg = false;
-        charteredPatch = null;
-      }
-      boolean teleported =
-          before != null
-              && (before.getPlane() != here.getPlane() || before.distanceTo(here) > 30)
-              && !inHouse;
-      // A teleport only counts if it lands where this step's route goes: in the patch's own area,
-      // or within 10 tiles of where its teleport lands (Shortest Path's teleport tables). That
-      // works however the destination was picked (mouse or number key). Anything else (another
-      // destination, item or spell, or walking out of the house) leaves the step as it was. For a
-      // route with no known landing spot, it falls back to a teleport just after using its transport.
-      boolean fromStep = client.getTickCount() - stepTransportAt <= 20;
-      boolean rightPlace =
-          inPatchArea(step.patchId, here)
-              || (TeleportData.landingsFor(step.travel).isEmpty()
-                  ? fromStep
-                  : TeleportData.landedFor(step.travel, here, 10));
-      if (teleported) event((rightPlace ? "landed right: " : "landed elsewhere: ") + here.getX() + "," + here.getY());
-      // Landed somewhere else: the teleport is to be used again, so it lights up straight away.
-      if (teleported && !rightPlace) teleportClickedAt = -100;
-      fromStep = rightPlace;
-      if (teleported && !fromStep && wasInHouse) leftHousePatch = step.patchId;
-      // A second leg after the teleport (guide, boat, quetzal...) means only arriving counts.
-      if (!step.patchId.equals(jumpPatch)) {
-        jumpPatch = step.patchId;
-        jumped = false;
-        teleportedThisLeg = false;
-      }
-      if (teleported && fromStep) {
-        teleportedThisLeg = true;
-        leftHousePatch = null;
-      }
-      // After the teleport out (e.g. through the fairy ring), the ring or tree is no longer the
-      // thing to click: the route to the patch is. Only a jump right after using a fairy ring,
-      // spirit tree, portal or box counts: popping out to the bank and back mustn't lose the
-      // house route.
-      if (teleported && fromStep && usedTransport) jumped = true;
-      if (teleported) usedTransport = false;
-      // A walk has nothing to click first: the patch is the step straight away (it was orange,
-      // "next", the whole way). A guide's or boat's drop-off counts once it's in the patch's own
-      // map square (Nemus Retreat), not only within 10 tiles.
-      boolean walk = step.travel.toLowerCase(Locale.ROOT).startsWith("walk");
-      if (walk
-          || teleported && fromStep && !multiLeg(step.travel)
-          || teleported && inPatchArea(step.patchId, here)
-          || arrived(step.patchId, player)) phaseDone(step);
-      return;
-    }
-    if (step.phase.startsWith("Note")) {
-      // Noting is done once no unnoted produce is left in the inventory.
-      if (!holdingUnnoted(itemIds(step.items))) phaseDone(step);
-      return;
-    }
-    // Every other step is read from what the patch is right now, not from what was clicked.
-    TileObject patch = patchObject;
-    if (patch == null) return;
-    // The game only sends a patch's state once you're in that patch's area. Until then it shows
-    // the last patch sharing its varbit (every ordinary tree patch shares one): from the house
-    // portal, Taverley showed Falador's new sapling. 10 tiles is inside every patch's area in
-    // RuneLite's FarmingWorld; the map square isn't (part of Catherby's fruit tree square sends
-    // the herb patch's state).
-    if (patch.getWorldLocation().distanceTo2D(here) > 10) return;
-    ObjectComposition c = client.getObjectDefinition(patch.getId());
-    if (c != null && c.getImpostorIds() != null) c = c.getImpostor();
-    if (c == null || c.getName() == null) return;
-    // Empty and weedy patches are named "... patch"; grown, growing and dead crops are not.
-    boolean empty = c.getName().toLowerCase(Locale.ROOT).contains("patch");
-    boolean pick = false, check = false, clearDead = false;
-    for (String action : c.getActions())
-      if (action != null) {
-        String a = action.toLowerCase(Locale.ROOT);
-        pick |= a.startsWith("pick") || a.startsWith("harvest");
-        check |= a.equals("check-health");
-        clearDead |= a.equals("clear");
-      }
-    // Dead crops (herbs or trees) have to be cleared by you; no gardener will do it.
-    // Dead only by name ("Dead herbs", "Dead … tree"): a healthy grown Calquat also offers Clear.
-    boolean deadName = c.getName().toLowerCase(Locale.ROOT).contains("dead");
-    clearDead &= deadName;
-    deadPatch = deadName;
-    // Resurrect Crops cast here: growing again means it worked and the patch is finished; a
-    // failed cast clears the patch, and the normal plant and compost steps follow.
-    if (step.patchId.equals(resurrectCastOn) && !deadPatch && !empty && !pick && !check) {
-      event("resurrected: " + step.patchId);
-      resurrectCastOn = null;
-      String id = step.patchId;
-      SwingUtilities.invokeLater(
-          () -> {
-            if (active && panel != null) panel.resurrected(id);
-          });
-      return;
-    }
-    if (step.patchId.equals(resurrectCastOn) && empty) resurrectCastOn = null;
-    boolean done;
-    switch (step.phase) {
-      case "Harvest":
-        // Dead herbs must be cleared first; that is shown as "Clear the dead herbs".
-        done = !pick && !clearDead;
-        break;
-      case "Check health":
-        // No Check-health left: checked, or nothing to check (empty, growing or dead). Any tree
-        // counts, not just the crop being planted, so switching crop doesn't hold the guide here.
-        done = !check;
-        break;
-      case "Clear":
-        done = empty;
-        break;
-      case "Plant":
-        // A crop is now growing: not empty, nothing to pick, check or clear.
-        done = !empty && !pick && !check && !clearDead;
-        break;
-      default:
-        done = false;
-    }
-    // Only trust a reading that holds for two ticks: just after a teleport the scene is still
-    // loading and the wrong object, or a half-loaded one, can briefly be found.
-    String reading = step.patchId + step.phase + patch.getWorldLocation() + c.getId() + done;
-    if (!reading.equals(lastReading))
-      debugLog(
-          "patch " + c.getName() + " id " + c.getId() + " at " + patch.getWorldLocation() + " actions "
-              + Arrays.toString(c.getActions()) + " · " + step.phase + " done " + done);
-    readingTicks = reading.equals(lastReading) ? readingTicks + 1 : 0;
-    lastReading = reading;
-    // Straight away normally; two matching ticks just after a scene load.
-    if (done && (readingTicks >= 1 || client.getTickCount() - loadedAtTick > 3)) phaseDone(step);
+  @Subscribe
+  public void onGameObjectDespawned(GameObjectDespawned e) {
+    scene.forget(e.getGameObject());
   }
 
-  private String lastReading;
-  /** Tick the last scene load (teleport, region change) happened. */
-  private int loadedAtTick;
-  private int readingTicks;
-  /** The guided herb patch has died and needs clearing before anything else. */
-  private volatile boolean deadPatch;
-
-  // ---- Switching spellbook before a run (magic cape or the house altar) ----
-
-  static final int CAPE_SWAPS_PER_DAY = 5;
-  private static final Set<Integer> MAGIC_CAPES = itemIds(Collections.singletonList("Magic cape"));
-  /** Tick the magic cape's Spellbook option was clicked, or -1. */
-  private int capeSwapClickedAt = -1;
-  /** Spare variants kept out of the bank filter, e.g. a basic whistle when you own a better one. */
-  private volatile Set<Integer> hiddenVariants = Collections.emptySet();
-  /** Everything owned (bank, inventory, worn), from the last account scan. */
-  private volatile Set<Integer> ownedItems = Collections.emptySet();
-  /** Show the magic cape in the bank filter, to withdraw for a spellbook switch. */
-  private volatile boolean capeNeeded;
-  /** "cape" or "altar" when that's what to click to switch, else null. */
-  private volatile String switchMethod;
-  /** One line for the overlay saying how to switch, or null. */
-  private volatile String switchHint;
-  /** The house altar to click, when that's the way to switch. */
-  private volatile List<TileObject> switchObjects = Collections.emptyList();
-
-  /** The magic cape's menu title, "Choose spellbook: (4/5 left)", says how many changes are left. */
-  private void readSpellbookDialog() {
-    Widget options = client.getWidget(InterfaceID.Chatmenu.OPTIONS);
-    if (options == null || options.isHidden() || options.getDynamicChildren() == null) return;
-    for (Widget line : options.getDynamicChildren()) {
-      String text = line == null || line.getText() == null ? "" : Text.removeTags(line.getText());
-      java.util.regex.Matcher left =
-          java.util.regex.Pattern.compile("Choose spellbook: \\((\\d+)/(\\d+) left\\)").matcher(text);
-      if (left.find()) {
-        int used = Integer.parseInt(left.group(2)) - Integer.parseInt(left.group(1));
-        if (used != capeSwapsUsed()) setCapeSwapsUsed(used);
-        return;
-      }
-    }
+  @Subscribe
+  public void onGroundObjectSpawned(GroundObjectSpawned e) {
+    scene.remember(e.getGroundObject());
   }
 
-  /** The magic cape's spellbook changes used today. The game's day starts at 00:00 UTC. */
-  int capeSwapsUsed() {
-    String saved = configManager.getRSProfileConfiguration(FarmingPanel.GROUP, "capeSwaps");
-    String today = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
-    if (saved == null || !saved.startsWith(today + ":")) return 0;
-    try {
-      return Integer.parseInt(saved.substring(today.length() + 1));
-    } catch (NumberFormatException ex) {
-      return 0;
-    }
+  @Subscribe
+  public void onGroundObjectDespawned(GroundObjectDespawned e) {
+    scene.forget(e.getGroundObject());
   }
 
-  private void setCapeSwapsUsed(int used) {
-    String today = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
-    int clamped = Math.max(0, Math.min(CAPE_SWAPS_PER_DAY, used));
-    configManager.setRSProfileConfiguration(FarmingPanel.GROUP, "capeSwaps", today + ":" + clamped);
+  @Subscribe
+  public void onDecorativeObjectSpawned(DecorativeObjectSpawned e) {
+    scene.remember(e.getDecorativeObject());
   }
 
-  /** The spellbook the run needs and you're not on: 0 standard, 3 Arceuus, or -1 if fine. */
-  int spellbookWanted() {
-    List<String> list = missing;
-    if (list.contains(FarmingPanel.SWITCH_ARCEUUS)) return 3;
-    if (list.contains(FarmingPanel.SWITCH_STANDARD)) return 0;
-    return -1;
+  @Subscribe
+  public void onDecorativeObjectDespawned(DecorativeObjectDespawned e) {
+    scene.forget(e.getDecorativeObject());
   }
 
-  /** "arceuus" or "standard", for matching menu and dialogue options. */
-  String spellbookWord() {
-    int wanted = spellbookWanted();
-    return wanted == 3 ? "arceuus" : wanted == 0 ? "standard" : null;
+  @Subscribe
+  public void onNpcSpawned(NpcSpawned e) {
+    scene.addNpc(e.getNpc());
   }
 
-  String switchMethod() {
-    return switchMethod;
-  }
-
-  String switchHint() {
-    return switchHint;
-  }
-
-  List<TileObject> switchObjects() {
-    return switchObjects;
-  }
-
-  /**
-   * Works out how to switch spellbook: the magic cape if you're carrying it and have changes left
-   * today, the altar when you're in your house, otherwise what to fetch first.
-   */
-  private void refreshSpellbookSwitch() {
-    boolean before = capeNeeded;
-    computeSpellbookSwitch();
-    // The cape comes and goes from the bank filter: refresh it if it's showing.
-    if (before != capeNeeded && kitFilterOpen()) refreshKitFilter();
-  }
-
-  /** Re-applies the kit filter so the bank shows exactly what's needed now. */
-  private void refreshKitFilter() {
-    layoutManager.saveLayout(new Layout(BANK_TAG, kitLayout()));
-    bankTags.closeBankTag();
-    bankTags.openBankTag(BANK_TAG, 0);
-    styleBankButton();
-  }
-
-  private void computeSpellbookSwitch() {
-    int wanted = spellbookWanted();
-    Player player = client.getLocalPlayer();
-    if (wanted < 0 || player == null || client.getVarbitValue(VarbitID.SPELLBOOK) == wanted) {
-      switchMethod = null;
-      switchHint = null;
-      switchObjects = Collections.emptyList();
-      capeNeeded = false;
-      // Switched with the magic cape: the bank is next, to put the cape back.
-      Widget bankOpen = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
-      if (player != null
-          && missing.contains(FarmingPanel.DEPOSIT_CAPE)
-          && (bankOpen == null || bankOpen.isHidden())) {
-        TileObject booth = nearestObject(player, 25, "bank booth", "bank chest", "bank deposit box");
-        if (booth != null) switchObjects = Collections.singletonList(booth);
-      }
-      return;
-    }
-    String book = wanted == 3 ? "Arceuus" : "standard";
-    int left = CAPE_SWAPS_PER_DAY - capeSwapsUsed();
-    boolean carried = false;
-    for (int container : new int[] {InventoryID.INV, InventoryID.WORN}) {
-      ItemContainer items = client.getItemContainer(container);
-      if (items != null)
-        for (Item item : items.getItems()) carried |= MAGIC_CAPES.contains(item.getId());
-    }
-    boolean owned = false;
-    for (int id : MAGIC_CAPES) owned |= ownedItems.contains(id);
-    TileObject altar =
-        client.getTopLevelWorldView().isInstance()
-            ? nearestObject(player, 40, "altar of the occult", "occult altar", "dark altar")
-            : null;
-    readSpellbookDialog();
-    capeNeeded = !carried && owned && left > 0;
-    if (carried && left > 0) {
-      switchMethod = "cape";
-      switchObjects = Collections.emptyList();
-      switchHint = "Magic cape → Spellbook → " + book + " (" + left + " left today)";
-    } else if (altar != null) {
-      switchMethod = "altar";
-      switchObjects = Collections.singletonList(altar);
-      switchHint = "Use the altar to switch to " + book;
-    } else {
-      switchMethod = null;
-      switchObjects = Collections.emptyList();
-      switchHint =
-          capeNeeded
-              ? "Withdraw your magic cape to switch to " + book + " (" + left + " left today)"
-              : "Teleport to your house and use the altar to switch to " + book;
-    }
-  }
-
-  /** The patch Resurrect Crops was last cast on, until its result shows. */
-  private String resurrectCastOn;
-
-  /** Patches Resurrect Crops has been tried on this run (a crop can only be revived once). */
-  private final Set<String> resurrectTried = new HashSet<>();
-
-  /** Cast Resurrect Crops now: on, dead herbs at the guided patch, not tried here yet. */
-  boolean resurrectNow() {
-    Guidance step = guidance;
-    return step != null
-        && step.resurrect
-        && step.kind.equals("herb")
-        && step.phase.equals("Harvest")
-        && deadPatch
-        && !resurrectTried.contains(step.patchId);
-  }
-
-  boolean deadPatch() {
-    return deadPatch;
-  }
-
-  private boolean holdingUnnoted(Set<Integer> ids) {
-    ItemContainer inventory = client.getItemContainer(InventoryID.INV);
-    if (inventory == null) return false;
-    for (Item item : inventory.getItems()) if (ids.contains(item.getId())) return true;
-    return false;
-  }
-
-  private static final List<String> SECOND_LEGS =
-      Arrays.asList(
-          "follow", "boat", "charter", "rowboat", "barge", "mushtree", "quetzal to", "spirit tree",
-          "fairy ring");
-
-  /** Travel that needs another transport after the first teleport, e.g. "…; follow Mountain Guide". */
-  static boolean multiLeg(String travel) {
-    int arrow = travel.indexOf('→');
-    String after = (arrow < 0 ? travel : travel.substring(arrow + 1)).toLowerCase(Locale.ROOT);
-    for (String leg : SECOND_LEGS) if (after.contains(leg)) return true;
-    return false;
-  }
-
-  /**
-   * In the patch's own area: RuneLite's farming regions for a herb patch, or the 64×64 map region
-   * holding a tree patch.
-   */
-  private static boolean inPatchArea(String patchId, WorldPoint here) {
-    Set<Integer> regions = TargetData.HERB_REGIONS.get(patchId);
-    if (regions != null) return regions.contains(here.getRegionID());
-    WorldPoint at = TargetData.PATCH_POINTS.get(patchId);
-    return at != null && at.getPlane() == here.getPlane() && at.getRegionID() == here.getRegionID();
-  }
-
-  /** In the patch's herb region, or its gardener is anywhere in the loaded scene. */
-  private boolean arrived(String patchId, Player player) {
-    // Known patch position: within 10 tiles, so a nearby bank (e.g. Falador east) isn't "there".
-    // Tree Gnome Village allows 20: through the maze counts, not just its spirit tree.
-    WorldPoint at = TargetData.PATCH_POINTS.get(patchId);
-    int radius = patchId.equals("village") ? 20 : 10;
-    if (at != null && !patchId.startsWith("herb"))
-      return at.getPlane() == player.getWorldLocation().getPlane()
-          && at.distanceTo(player.getWorldLocation()) <= radius;
-    if (TargetData.HERB_REGIONS
-        .getOrDefault(patchId, Collections.emptySet())
-        .contains(player.getWorldLocation().getRegionID())) return true;
-    int gardener = TargetData.GARDENERS.getOrDefault(patchId, -1);
-    for (NPC n : sceneNpcs) if (n.getId() == gardener) return true;
-    return false;
-  }
-
-  /**
-   * Before a run that needs another spellbook: the magic cape's Spellbook, the altar's option for
-   * that book, or (when the house is the way) the Construction cape's or tablet's Tele to POH.
-   */
-  private void swapForSpellbookSwitch() {
-    String word = spellbookWord();
-    if (word == null) return;
-    MenuEntry[] entries = client.getMenuEntries();
-    String[][] wanted = {
-      {"magic cape", "spellbook"},
-      {"max cape", "spellbook"},
-      {"altar of the occult", word}, // options: Venerate, Standard, Ancient, Lunar (+ Arceuus)
-      {"occult altar", word},
-      {"dark altar", word},
-      {"dark altar", "venerate"},
-      {"construct", "tele to poh"}, // the game names it "Construct. cape(t)"
-      {"teleport to house", "break"}
-    };
-    for (String[] want : wanted) {
-      if (want[0].equals("construct") || want[0].equals("teleport to house")) {
-        if (!"house".equals(switchRoute())) continue;
-      }
-      for (MenuEntry entry : entries) {
-        String option = Text.removeTags(entry.getOption()).toLowerCase(Locale.ROOT);
-        String target = Text.removeTags(entry.getTarget()).toLowerCase(Locale.ROOT);
-        if (target.contains(want[0]) && option.equals(want[1])) {
-          moveToLeftClick(entries, entry);
-          return;
-        }
-      }
-    }
-  }
-
-  /** How an item's name starts in game menus, lower case (some are abbreviated there). */
-  private static String menuName(String itemName) {
-    String name = itemName.toLowerCase(Locale.ROOT);
-    return name.equals("construction cape") ? "construct. cape" : name;
-  }
-
-  /**
-   * With the fairy ring's dials open, scrolls the travel log so this route's code is at the top
-   * and colours it green, the way the Shortest Path plugin does (ShortestPathPlugin
-   * .scrollFairyRingPanel, BSD-2-Clause).
-   */
-  /**
-   * In a right-click submenu, e.g. the construction cape's Teleport list, the route's destination
-   * and the option that opens it are drawn in the highlight colour.
-   */
-  private void colourMenuDestination(Guidance step) {
-    if (!client.isMenuOpen()) return;
-    String word = FarmingInventoryOverlay.destination(step.travel).split(" ")[0];
-    if (word.length() < 4) return;
-    String colour =
-        String.format("<col=%06x>", FarmingInventoryOverlay.TARGET.getRGB() & 0xFFFFFF);
-    for (MenuEntry entry : client.getMenu().getMenuEntries()) {
-      net.runelite.api.Menu sub = entry.getSubMenu();
-      if (sub == null) continue;
-      for (MenuEntry choice : sub.getMenuEntries()) {
-        String option = choice.getOption();
-        if (option == null || option.startsWith("<col=")) continue;
-        if (!option.toLowerCase(Locale.ROOT).contains(word)) continue;
-        choice.setOption(colour + option + "</col>");
-        if (!entry.getOption().startsWith("<col="))
-          entry.setOption(colour + entry.getOption() + "</col>");
-      }
-    }
+  @Subscribe
+  public void onNpcDespawned(NpcDespawned e) {
+    scene.removeNpc(e.getNpc());
   }
 
   @Subscribe
   public void onPostClientTick(PostClientTick e) {
     Guidance step = guidance;
-    if (step == null || !step.phase.equals("Travel") && !houseReturn()) return;
-    colourMenuDestination(step);
-    String code = FarmingPlanner.fairyCode(step.travel);
-    Widget contents = client.getWidget(InterfaceID.FairyringsLog.CONTENTS);
-    if (code == null || contents == null || contents.isHidden()) return;
-    Widget entry = null;
-    List<String> seen = new ArrayList<>();
-    Widget faves = client.getWidget(InterfaceID.FairyringsLog.FAVES);
-    if (faves != null && faves.getStaticChildren() != null)
-      for (Widget w : faves.getStaticChildren())
-        if (w != null && w.getText() != null && !w.getText().isEmpty()) {
-          seen.add(w.getText());
-          if (entry == null && logEntryIs(w, code)) entry = w;
-        }
-    if (entry == null && contents.getDynamicChildren() != null)
-      for (Widget w : contents.getDynamicChildren())
-        if (w != null && w.getText() != null && !w.getText().isEmpty()) {
-          seen.add(w.getText());
-          if (entry == null && logEntryIs(w, code)) entry = w;
-        }
-    String report = "fairy log: " + code + (entry == null ? " not found in " : " found in ") + seen;
-    if (debugSeen.add(report)) debugLog(report);
-    if (entry == null) return;
-    entry.setTextColor(0x00FF00);
-    String text = String.valueOf(entry.getText());
-    if (!text.contains(LOG_TAG)) entry.setText(LOG_TAG + text);
-    int scrollY = Math.min(entry.getRelativeY(), contents.getScrollHeight() - contents.getHeight());
-    if (scrollY < 0 || contents.getScrollY() == scrollY) return;
-    contents.setScrollY(scrollY);
-    contents.revalidateScroll();
-    client.runScript(
-        ScriptID.UPDATE_SCROLLBAR,
-        InterfaceID.FairyringsLog.SCROLLBAR,
-        InterfaceID.FairyringsLog.CONTENTS,
-        scrollY);
+    if (step == null || !step.phase.equals("Travel") && !progress.houseReturn()) return;
+    menuSwaps.colourDestination(step);
+    fairyRingLog.highlight(step);
   }
 
-  private static final String LOG_TAG = "(Ultimate Farming) ";
-
-  /** A travel log entry for this code: it starts with the code, however it's spaced or tagged. */
-  private static boolean logEntryIs(Widget w, String code) {
-    String flat =
-        Text.removeTags(String.valueOf(w.getText())).replace(LOG_TAG.trim(), "").replaceAll("\\s", "")
-            .toUpperCase(Locale.ROOT);
-    return flat.startsWith(code);
-  }
-
-  /** Item options that aren't a teleport. */
-  private static final Set<String> TELEPORT_NOT =
-      new HashSet<>(
-          Arrays.asList(
-              "wear", "wield", "remove", "examine", "drop", "use", "check", "check-charges",
-              "uncharge", "configure", "open", "empty", "fill", "destroy", "cancel", "walk here"));
-
-  /** Tick a teleport was clicked on this step, and which patch's step it was. */
-  private int teleportClickedAt = -100;
-
-  private String teleportClickedPatch;
-
-  /** A quetzal map, spirit tree list, portal nexus or jewellery box is open. */
-  private boolean destinationMenuShowing() {
-    for (int id :
-        new int[] {
-          InterfaceID.QuetzalwhistleMenu.ICONS, InterfaceID.QuetzalMenu.ICONS,
-          InterfaceID.Menu.LJ_LAYER1, InterfaceID.Menu.LJ_LAYER2,
-          InterfaceID.TelenexusTeleport.UNIVERSE, InterfaceID.PohJewelleryBox.UNIVERSE
-        }) {
-      Widget w = client.getWidget(id);
-      if (w != null && !w.isHidden()) return true;
-    }
-    return false;
-  }
-
-  /**
-   * The travel item for this step has done its job: just clicked, or you've already teleported on
-   * this trip (e.g. landed from the whistle). Either way it's not to be highlighted again.
-   */
-  boolean travelItemDone() {
-    Guidance step = guidance;
-    return step != null && step.patchId.equals(jumpPatch) && teleportedThisLeg
-        || teleportClicked()
-        || outsidePortalShown;
-  }
-
-  /** A teleport for the current Travel step was clicked in the last few ticks. */
-  boolean teleportClicked() {
-    Guidance step = guidance;
-    return step != null
-        && step.patchId.equals(teleportClickedPatch)
-        && client.getTickCount() - teleportClickedAt <= 8;
-  }
-
-  /** Whether you've just used a fairy ring, spirit tree, portal or box. */
-  private boolean usedTransport;
-
-  /** Tick this step's transport was last used (item, spell, destination, nexus, ring…). */
-  private int stepTransportAt = -100;
-
-  /** Whether you were in the house last tick. */
-  private boolean lastInHouse;
-
-  /** The patch whose trip you walked out of the house on (exit portal), so its outside portal leads back in. */
-  private volatile String leftHousePatch;
-
-  /** The outside house portal is what to click (you walked out mid-trip). */
-  private volatile boolean outsidePortalShown;
-
-  /** "cape", "altar", "house" (go home first) or "bank" (withdraw the cape), or null. */
-  String switchRoute() {
-    if (switchHint == null) return null;
-    if (switchMethod != null) return switchMethod;
-    return capeNeeded ? "bank" : "house";
-  }
-
-  private void phaseDone(Guidance step) {
-    event("step done: " + step.phase);
-    if (!step.phase.equals("Travel")) workedPatch = step.patchId;
-    SwingUtilities.invokeLater(
-        () -> {
-          if (active && panel != null) panel.phaseDone(step.patchId, step.phase);
-        });
-  }
-
-  /**
-   * While travelling, makes the needed option the left-click one: the cloak or ring teleport, the
-   * fairy ring's Last-destination (when it's already this code) or Configure, and the spirit
-   * tree's Travel (Tree on a spiritual fairy tree). Option names are from RuneLite's Menu Entry
-   * Swapper.
-   */
   // Runs after RuneLite's Menu Entry Swapper (higher priority runs first), whose own Ardougne
   // cloak and construction cape swaps otherwise overrode these.
   @Subscribe(priority = -10)
   public void onPostMenuSort(PostMenuSort e) {
-    // The rune pouch doesn't hold what the run needs: Configure is the left-click.
-    if (guidance == null && !client.isMenuOpen() && !pouchShortfall().isEmpty()) {
-      MenuEntry[] entries = client.getMenuEntries();
-      for (MenuEntry entry : entries) {
-        String option = Text.removeTags(entry.getOption()).toLowerCase(Locale.ROOT);
-        String target = Text.removeTags(entry.getTarget()).toLowerCase(Locale.ROOT);
-        if (target.contains("rune pouch") && option.equals("configure")) {
-          moveToLeftClick(entries, entry);
-          return;
-        }
-      }
-    }
-    if (guidance == null && switchHint != null && !client.isMenuOpen()) {
-      swapForSpellbookSwitch();
-      return;
-    }
-    Guidance step = guidance;
-    // Paying the gardener (protection, or removing the tree): "Pay" is his left-click. With more
-    // than one patch he has "Pay (tree patch)", "Pay (fruit tree)"…: the one for this patch.
-    if (step != null
-        && !client.isMenuOpen()
-        && (step.phase.equals("Protect")
-            || step.phase.equals("Clear") && GARDENER_REMOVAL.contains(step.kind) && !deadPatch)) {
-      int gardenerId = TargetData.GARDENERS.getOrDefault(step.patchId, -1);
-      MenuEntry[] entries = client.getMenuEntries();
-      MenuEntry pay = null;
-      for (MenuEntry entry : entries) {
-        NPC npc = entry.getNpc();
-        String option = Text.removeTags(entry.getOption()).toLowerCase(Locale.ROOT);
-        if (npc == null || npc.getId() != gardenerId || !option.startsWith("pay")) continue;
-        boolean fruit = option.contains("fruit");
-        if (pay == null || fruit == step.kind.equals("fruit")) pay = entry;
-      }
-      if (pay != null) moveToLeftClick(entries, pay);
-      return;
-    }
-    if (step == null || !step.phase.equals("Travel") && !houseReturn() || client.isMenuOpen())
-      return;
-    String travel = step.travel.toLowerCase(Locale.ROOT);
-    String code = FarmingPlanner.fairyCode(step.travel);
-    List<String[]> wanted = new ArrayList<>(); // {target contains, option contains}, best first
-    if (step.travel.startsWith("Ardougne cloak"))
-      wanted.add(new String[] {"ardougne cloak", "farm"});
-    if (step.travel.startsWith("Explorer's ring"))
-      wanted.add(new String[] {"explorer's ring", "teleport"});
-    // The Construction cape's own portals (Taverley, Brimhaven) are under "Teleport"; its
-    // "Tele to POH" is only for trips through your house.
-    // (In menus the game calls it "Construct. cape(t)", so match on "construct".)
-    if (step.travel.startsWith("Construction cape"))
-      wanted.add(new String[] {"construct", "teleport"});
-    // Eternal or charged teleport crystal: its "Lletya" option.
-    if (travel.contains("lletya")) wanted.add(new String[] {"teleport crystal", "lletya"});
-    // Standard spells: "Cast", not an alternative like Varrock's Grand Exchange.
-    String spell = step.spell;
-    if (spell != null && !spell.equals("House"))
-      wanted.add(new String[] {spell.toLowerCase(Locale.ROOT) + " teleport", "cast"});
-    if (code != null) {
-      wanted.add(new String[] {"fairy", "last-destination (" + code.toLowerCase(Locale.ROOT)});
-      wanted.add(new String[] {"fairy", "configure"});
-    }
-    // A charter ship (e.g. Catherby to Corsair Cove): the crew's "Charter-to <place>" when it's
-    // already this destination (it remembers your last one), otherwise plain "Charter".
-    if (travel.contains("charter")) {
-      java.util.regex.Matcher to =
-          java.util.regex.Pattern.compile("charter to ([a-z' ]+?)(;|,| then|$)").matcher(travel);
-      if (chartered()) {
-        // Off the ship, then on: the gangplank's Cross and the rowboat's Travel.
-        wanted.add(new String[] {"gangplank", "cross"});
-        wanted.add(new String[] {"rowboat", "travel"});
-      } else {
-        if (to.find()) wanted.add(new String[] {"trader crew", "charter-to " + to.group(1).trim()});
-        wanted.add(new String[] {"trader crew", "charter"});
-      }
-    }
-    if (travel.contains("spirit tree")) {
-      wanted.add(new String[] {"spiritual fairy tree", "tree"});
-      wanted.add(new String[] {"spirit tree", "travel"});
-    }
-    MenuEntry[] entries = client.getMenuEntries();
-    // Any other teleport item on this step (talisman, capes, jewellery…): prefer an option naming
-    // the destination, e.g. "Falador Park" or "Xeric's Glade", then Teleport / Tele to POH, then Rub.
-    int arrow = step.travel.indexOf('→');
-    String place =
-        arrow < 0
-            ? ""
-            : travel.substring(arrow + 1).split("[,;]| then ")[0].replace("→", "").trim();
-    MenuEntry best = null;
-    int bestRank = 9;
-    for (MenuEntry entry : entries) {
-      String option = Text.removeTags(entry.getOption()).toLowerCase(Locale.ROOT);
-      String target = Text.removeTags(entry.getTarget()).toLowerCase(Locale.ROOT);
-      boolean ours = false;
-      for (String item : step.items)
-        ours |= target.startsWith(menuName(FarmingPlanner.normalize(item)));
-      // Objects and NPCs on the way: house spirit tree, portal nexus, jewellery box, the Tree
-      // Gnome Village railing and Elkoy.
-      for (String thing :
-          new String[] {
-            "spirit tree", "portal nexus", "jewellery box", "railing", "elkoy", "mountain guide"
-          })
-        ours |= target.contains(thing) && travel.contains(thing.split(" ")[0]);
-      ours |= target.contains("portal") && travel.contains("portal");
-      if (!ours) continue;
-      String destination = FarmingInventoryOverlay.destination(step.travel);
-      // House routes (house fairy ring, spirit tree, jewellery box, nexus) want "Tele to POH",
-      // not the cape's portal list.
-      boolean toHouse =
-          travel.startsWith("house ") || travel.startsWith("poh ") || travel.contains("your house");
-      int rank =
-          toHouse && option.equals("tele to poh")
-              ? 0
-              : !place.isEmpty() && option.contains(place)
-                  || destination.length() > 3 && option.contains(destination)
-                  // Worn jewellery shortens it: the worn ring's "Falador" for Falador Park.
-                  || option.length() > 3 && !place.isEmpty() && place.startsWith(option)
-              ? 0
-              : Arrays.asList(
-                          "teleport",
-                          "farm teleport",
-                          "tele to poh",
-                          "travel",
-                          "teleport menu",
-                          "squeeze-through",
-                          "follow")
-                      .contains(option)
-                  ? 1
-                  : option.equals("rub") ? 2 : 9;
-      if (rank < bestRank) {
-        best = entry;
-        bestRank = rank;
-      }
-    }
-    // Exact swaps first (worn items use the destination as the option, e.g. "Ardougne Farm").
-    for (String[] want : wanted)
-      for (int i = 0; i < entries.length; i++) {
-        MenuEntry entry = entries[i];
-        String option = Text.removeTags(entry.getOption()).toLowerCase(Locale.ROOT);
-        String target = Text.removeTags(entry.getTarget()).toLowerCase(Locale.ROOT);
-        boolean exact = want[1].equals("teleport") || want[1].equals("tree") || want[1].equals("charter");
-        if (!target.contains(want[0])
-            || !(exact ? option.equals(want[1]) : option.contains(want[1]))) continue;
-        moveToLeftClick(entries, entry);
-        return;
-      }
-    if (best != null) moveToLeftClick(entries, best);
-  }
-
-  /** The last menu entry is the left-click option. */
-  private void moveToLeftClick(MenuEntry[] entries, MenuEntry entry) {
-    List<MenuEntry> list = new ArrayList<>(Arrays.asList(entries));
-    list.remove(entry);
-    list.add(entry);
-    // Item ops 4 and 5 (e.g. the cloak's Farm Teleport, the cape's Tele to POH) are
-    // CC_OP_LOW_PRIORITY, which the game never uses as the left-click: it opens the menu or picks
-    // the next option instead. Menu Entry Swapper raises them to CC_OP for the same reason.
-    if (entry.getType() == MenuAction.CC_OP_LOW_PRIORITY) entry.setType(MenuAction.CC_OP);
-    // A deprioritised entry on top also makes a left-click open the menu.
-    entry.setDeprioritized(false);
-    event("left-click: " + Text.removeTags(entry.getOption()) + " " + Text.removeTags(entry.getTarget()));
-    client.setMenuEntries(list.toArray(new MenuEntry[0]));
-  }
-
-  /** Level-up style fireworks on your character when a run is finished. Only you see them. */
-  private void celebrate() {
-    idleShownUntil = System.currentTimeMillis() + 15_000;
-    clientThread.invoke(
-        () -> {
-          Player player = client.getLocalPlayer();
-          if (player != null) player.createSpotAnim(0x0F4A11, SpotanimID.LEVELUP_99_ANIM, 0, 0);
-        });
-  }
-
-  /** The fairy ring code to dial on this Travel step, or null. */
-  String fairyCode() {
-    Guidance step = guidance;
-    return step == null || !step.phase.equals("Travel")
-        ? null
-        : FarmingPlanner.fairyCode(step.travel);
+    menuSwaps.swap();
   }
 
   @Subscribe
   public void onScriptPostFired(ScriptPostFired e) {
-    if (e.getScriptId() == ScriptID.BANKMAIN_BUILD) updateBankButton();
+    if (e.getScriptId() == ScriptID.BANKMAIN_BUILD) bankButton.update();
   }
 
   @Subscribe
   public void onWidgetLoaded(WidgetLoaded e) {
-    if (e.getGroupId() != InterfaceID.BANKMAIN) return;
-    // Work out which spare variants to hide (e.g. a second quetzal whistle) before the bank shows
-    // the filter, including when it was left open from last time.
-    kitLayout();
-    clientThread.invokeLater(
-        () -> {
-          updateBankButton();
-          // Left open from last time: rebuild it from the current kit, as the run may have changed.
-          if (preparingRun() && kitFilterOpen()) refreshKitFilter();
-        });
-  }
-
-  /** "Prepare run" pressed and the run not begun yet (no step done): the bank button's time. */
-  private volatile boolean preparing;
-
-  private boolean preparingRun() {
-    return preparing;
-  }
-
-  /**
-   * The bank button is only there while preparing a run; otherwise it's removed, along with the
-   * kit filter if it was left showing, so the bank is untouched while you do other things.
-   */
-  private void updateBankButton() {
-    Widget universe = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
-    if (universe == null) return;
-    if (preparingRun()) {
-      addBankButton();
-      if (bankButton != null) bankButton.setHidden(false);
-      if (bankIcon != null) bankIcon.setHidden(false);
-      styleBankButton();
-      return;
-    }
-    if (kitFilterOpen()) bankTags.closeBankTag();
-    if (bankButton != null) bankButton.setHidden(true);
-    if (bankIcon != null) bankIcon.setHidden(true);
-    universe.revalidate();
+    if (e.getGroupId() == InterfaceID.BANKMAIN) bankButton.bankLoaded();
   }
 
   @Subscribe
   public void onWidgetClosed(WidgetClosed e) {
-    if (e.getGroupId() == InterfaceID.BANKMAIN) bankButton = bankIcon = null;
-  }
-
-  /** A sapling button in the bank's top-left corner that shows every item the run needs. */
-  private void addBankButton() {
-    Widget universe = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
-    if (universe == null) return;
-    Widget[] children = universe.getDynamicChildren();
-    if (bankButton != null && children != null && Arrays.asList(children).contains(bankButton))
-      return;
-    // Quest Helper's exact button: 25px square at (408, 5) with a 19px icon inset by 3.
-    bankButton = universe.createChild(-1, WidgetType.GRAPHIC);
-    bankIcon = universe.createChild(-1, WidgetType.GRAPHIC);
-    for (Widget w : new Widget[] {bankButton, bankIcon}) {
-      int inset = w == bankIcon ? 3 : 0;
-      w.setOriginalX(408 + inset);
-      w.setOriginalY(5 + inset);
-      w.setOriginalWidth(25 - 2 * inset);
-      w.setOriginalHeight(25 - 2 * inset);
-    }
-    bankIcon.setSpriteId(SpriteID.SKILL_FARMING);
-    bankButton.setAction(0, "View Ultimate Farming items");
-    bankButton.setName("<col=ff9040>Ultimate Farming</col>");
-    bankButton.setHasListener(true);
-    bankButton.setNoClickThrough(true);
-    bankButton.setOnMouseOverListener(
-        (JavaScriptCallback) ev -> bankButton.setSpriteId(SpriteID.UNKNOWN_BUTTON_SQUARE_SMALL_SELECTED));
-    bankButton.setOnMouseLeaveListener((JavaScriptCallback) ev -> styleBankButton());
-    bankButton.setOnOpListener(
-        (JavaScriptCallback)
-            ev -> {
-              if (BANK_TAG.equals(bankTags.getActiveTag())) bankTags.closeBankTag();
-              else {
-                // A fixed layout keeps every slot: a withdrawn item leaves a placeholder instead
-                // of the rest shifting left.
-                layoutManager.saveLayout(new Layout(BANK_TAG, kitLayout()));
-                bankTags.openBankTag(BANK_TAG, 0);
-              }
-              styleBankButton();
-            });
-    styleBankButton();
-    bankButton.revalidate();
-    bankIcon.revalidate();
-  }
-
-  /** The button stays pressed while the farming items are shown. */
-  private void styleBankButton() {
-    if (bankButton == null) return;
-    bankButton.setSpriteId(
-        BANK_TAG.equals(bankTags.getActiveTag())
-            ? SpriteID.UNKNOWN_BUTTON_SQUARE_SMALL_SELECTED
-            : SpriteID.UNKNOWN_BUTTON_SQUARE_SMALL);
+    if (e.getGroupId() == InterfaceID.BANKMAIN) bankButton.bankClosed();
   }
 
   @Subscribe
   public void onItemContainerChanged(ItemContainerChanged e) {
     int container = e.getContainerId();
     if (container == InventoryID.BANK) {
-      bank = new LinkedHashSet<>();
-      for (Item item : e.getItemContainer().getItems())
-        if (item.getId() > 0 && item.getQuantity() > 0)
-          bank.add(itemManager.canonicalize(item.getId()));
-      // The herb sack is emptied at the bank between runs (assumed; corrected once it's seen full).
-      sackHerbs = 0;
-      StringBuilder b = new StringBuilder();
-      for (int id : bank) b.append(b.length() == 0 ? "" : ",").append(id);
-      configManager.setRSProfileConfiguration(FarmingPanel.GROUP, "bank", b.toString());
+      account.bankChanged(e.getItemContainer());
+      harvest.bankSeen();
     }
     if (container == InventoryID.BANK || container == InventoryID.INV || container == InventoryID.WORN)
-      scanDue = true;
-    if (container == InventoryID.INV) {
-      int count = 0;
-      for (Item item : e.getItemContainer().getItems())
-        if (GRIMY.contains(item.getId())) count += item.getQuantity();
-      if (grimyCount >= 0 && count > grimyCount) {
-        grimyGained = true;
-        event("herb picked: " + grimyCount + " -> " + count);
-        herbPicked(count - grimyCount);
-      }
-      grimyCount = count;
-      // Celastrus bark gained while guided at the Celastrus patch counts towards real profit.
-      int bark = 0;
-      for (Item item : e.getItemContainer().getItems())
-        if (item.getId() == net.runelite.api.gameval.ItemID.CELASTRUS_WOOD) bark += item.getQuantity();
-      Guidance step = guidance;
-      if (barkCount >= 0 && bark > barkCount && step != null && step.kind.equals("celastrus")) {
-        int gained = bark - barkCount;
-        event("bark chopped: +" + gained);
-        SwingUtilities.invokeLater(
-            () -> {
-              if (active && panel != null) panel.barkChopped(gained);
-            });
-      }
-      barkCount = bark;
-    }
-  }
-
-  /** Picking a herb at a route patch starts a herb run's timer. */
-  private void herbPicked(int picked) {
-    Player player = client.getLocalPlayer();
-    if (player == null) return;
-    Set<String> nearby = new HashSet<>();
-    int region = player.getWorldLocation().getRegionID();
-    for (Map.Entry<String, Set<Integer>> e : TargetData.HERB_REGIONS.entrySet())
-      if (e.getValue().contains(region)) nearby.add(e.getKey());
-    if (nearby.isEmpty()) return;
-    // Picking has started here: from now on, noting is only suggested if the inventory fills.
-    Guidance step = guidance;
-    if (step != null && nearby.contains(step.patchId)) {
-      if (!step.patchId.equals(pickingPatch)) pickedHere = 0;
-      pickingPatch = step.patchId;
-      workedPatch = step.patchId;
-      pickedHere += picked;
-    }
-    SwingUtilities.invokeLater(
-        () -> {
-          if (active && panel != null) panel.herbPicked(nearby, picked);
-        });
-  }
-
-  /** Reads quests, diaries and owned items, then tells the sidebar which unlocks are known. */
-  private void scanAccount() {
-    scanDue = false;
-    if (!active || client.getGameState() != GameState.LOGGED_IN) return;
-    if (bank == null) {
-      String saved = configManager.getRSProfileConfiguration(FarmingPanel.GROUP, "bank");
-      if (saved != null) {
-        bank = new LinkedHashSet<>();
-        for (String id : saved.split(","))
-          if (!id.isEmpty()) bank.add(Integer.parseInt(id));
-      }
-    }
-    Set<Integer> owned = new HashSet<>();
-    Map<Integer, Integer> carried = new HashMap<>();
-    if (bank != null) owned.addAll(bank);
-    for (int container : new int[] {InventoryID.INV, InventoryID.WORN}) {
-      ItemContainer items = client.getItemContainer(container);
-      if (items == null) continue;
-      for (Item item : items.getItems())
-        if (item.getId() > 0) {
-          // Notes count as the item itself, e.g. noted protection payments.
-          int id = itemManager.canonicalize(item.getId());
-          owned.add(id);
-          carried.merge(id, item.getQuantity(), Integer::sum);
-        }
-    }
-    bankUnknown = bank == null;
-    ownedItems = owned;
-    // Skill levels for Agility shortcuts on walking routes.
-    Map<String, Integer> levels = new HashMap<>();
-    for (Skill skill : Skill.values()) levels.put(skill.getName(), client.getRealSkillLevel(skill));
-    WorldPath.setLevels(levels);
-    AccountScan.Result result = AccountScan.scan(client, owned, bank != null);
-    result.carried = carried;
-    result.pouch = pouchRunes();
-    result.spellbook = client.getVarbitValue(VarbitID.SPELLBOOK);
-    SwingUtilities.invokeLater(
-        () -> {
-          if (active && panel != null) panel.updateAccount(result);
-        });
-  }
-
-  private static final int[][] POUCH_SLOTS = {
-    {VarbitID.RUNE_POUCH_TYPE_1, VarbitID.RUNE_POUCH_QUANTITY_1},
-    {VarbitID.RUNE_POUCH_TYPE_2, VarbitID.RUNE_POUCH_QUANTITY_2},
-    {VarbitID.RUNE_POUCH_TYPE_3, VarbitID.RUNE_POUCH_QUANTITY_3},
-    {VarbitID.RUNE_POUCH_TYPE_4, VarbitID.RUNE_POUCH_QUANTITY_4},
-    {VarbitID.RUNE_POUCH_TYPE_5, VarbitID.RUNE_POUCH_QUANTITY_5},
-    {VarbitID.RUNE_POUCH_TYPE_6, VarbitID.RUNE_POUCH_QUANTITY_6}
-  };
-
-  /** Rune item IDs and amounts inside the rune pouch, read from its varbits. */
-  Map<Integer, Integer> pouchRunes() {
-    Map<Integer, Integer> runes = new LinkedHashMap<>();
-    EnumComposition types = client.getEnum(EnumID.RUNEPOUCH_RUNE);
-    for (int[] slot : POUCH_SLOTS) {
-      int type = client.getVarbitValue(slot[0]), amount = client.getVarbitValue(slot[1]);
-      if (type <= 0 || amount <= 0 || types == null) continue;
-      int id = types.getIntValue(type);
-      if (id > 0) runes.merge(id, amount, Integer::sum);
-    }
-    return runes;
+      account.scanSoon();
+    if (container == InventoryID.INV) harvest.inventoryChanged(e.getItemContainer());
   }
 
   @Subscribe
   public void onVarbitChanged(VarbitChanged e) {
     if (e.getVarbitId() == VarbitID.SPELLBOOK) {
-      scanDue = true;
-      if (capeSwapClickedAt >= 0 && client.getTickCount() - capeSwapClickedAt < 100) {
-        capeSwapClickedAt = -1;
-        setCapeSwapsUsed(capeSwapsUsed() + 1);
-        event("magic cape swaps used today: " + capeSwapsUsed());
-      }
+      account.scanSoon();
+      spellbook.spellbookChanged();
     }
-    for (int[] slot : POUCH_SLOTS)
-      if (e.getVarbitId() == slot[0] || e.getVarbitId() == slot[1]) scanDue = true;
+    if (KitTracker.isPouchVarbit(e.getVarbitId())) account.scanSoon();
   }
 
   @Subscribe
   public void onChatMessage(ChatMessage e) {
-    // Debug: the game's own messages and dialogue boxes (never players' chat).
-    if (e.getType() == ChatMessageType.GAMEMESSAGE
-        || e.getType() == ChatMessageType.SPAM
-        || e.getType() == ChatMessageType.MESBOX
-        || e.getType() == ChatMessageType.DIALOG)
-      debugLog("chat [" + e.getType() + "] " + Text.removeTags(e.getMessage()));
-    if (e.getType() != ChatMessageType.GAMEMESSAGE && e.getType() != ChatMessageType.SPAM) return;
-    String m = Text.removeTags(e.getMessage()).toLowerCase(Locale.ROOT);
-    if (m.contains("spellbook")) {
-      // The game says "You have changed your spellbook 1/5 times today." after each change.
-      event("msg: " + m);
-      java.util.regex.Matcher used =
-          java.util.regex.Pattern.compile("changed your spellbook (\\d+)/\\d+ times today").matcher(m);
-      if (used.find()) {
-        setCapeSwapsUsed(Integer.parseInt(used.group(1)));
-        capeSwapClickedAt = -1; // counted from the message, not the varbit change
-      }
-    }
-    // "You pay 500 coins and sail to Corsair Cove.": this stage's charter is done, so its crew
-    // are never lit again; the ship's gangplank and then the next leg are what's left.
-    if (m.startsWith("you pay ") && m.contains(" and sail to ")) {
-      Guidance step = guidance;
-      if (step != null && step.phase.equals("Travel")) {
-        charteredPatch = step.patchId;
-        event("chartered: " + step.patchId);
-      }
-    }
-    if (m.contains("already resurrected")) {
-      Guidance step = guidance;
-      if (step != null) resurrectTried.add(step.patchId);
-    }
-    if (!m.contains("patch")) return;
-    event("msg: " + m);
-    if (m.startsWith("you plant ")) patchAction("Plant", patchKind(m));
-    // Only "You treat the … patch": inspecting says "has been treated", which isn't you composting.
-    else if (m.startsWith("you treat") && m.contains("compost")) patchAction("Compost", patchKind(m));
-    // Missed it (e.g. lag)? Inspecting the patch says "has been treated with … compost": while
-    // composting is the step, that counts too.
-    else if (m.contains("treated with")
-        && m.contains("compost")
-        && guidance != null
-        && guidance.phase.equals("Compost")) patchAction("Compost", patchKind(m));
-  }
-
-  /** Gardeners confirm protection in dialogue rather than in chat. */
-  /** Debug: the last dialogue logged (NPC line, your line and options), to log each once. */
-  private String lastDialogueLog;
-
-  private void logDialogue() {
-    StringBuilder b = new StringBuilder();
-    for (int[] part :
-        new int[][] {
-          {InterfaceID.ChatLeft.NAME, InterfaceID.ChatLeft.TEXT},
-          {InterfaceID.ChatRight.NAME, InterfaceID.ChatRight.TEXT}
-        }) {
-      Widget name = client.getWidget(part[0]), text = client.getWidget(part[1]);
-      if (text != null && !text.isHidden() && text.getText() != null)
-        b.append(name == null ? "" : Text.removeTags(String.valueOf(name.getText())))
-            .append(": ")
-            .append(Text.removeTags(text.getText()))
-            .append(' ');
-    }
-    Widget options = client.getWidget(InterfaceID.Chatmenu.OPTIONS);
-    if (options != null && !options.isHidden() && options.getDynamicChildren() != null) {
-      List<String> lines = new ArrayList<>();
-      for (Widget w : options.getDynamicChildren())
-        if (w != null && w.getText() != null && !w.getText().isEmpty()) lines.add(Text.removeTags(w.getText()));
-      if (!lines.isEmpty()) b.append("options ").append(lines);
-    }
-    String now = b.toString().trim();
-    if (now.isEmpty() || now.equals(lastDialogueLog)) {
-      if (now.isEmpty()) lastDialogueLog = null;
-      return;
-    }
-    lastDialogueLog = now;
-    debugLog("dialogue: " + now);
-  }
-
-  private void watchGardenerDialog() {
-    if (config.debug()) logDialogue();
-    Widget text = client.getWidget(InterfaceID.ChatLeft.TEXT);
-    String value = text == null || text.isHidden() ? null : text.getText();
-    if (Objects.equals(value, lastDialog)) return;
-    lastDialog = value;
-    if (value == null) return;
-    String m = Text.removeTags(value).toLowerCase(Locale.ROOT);
-    if (m.contains("leave it with me") || m.contains("already looking after")) {
-      event("gardener: " + m);
-      patchAction("Protect", null);
-    }
-  }
-
-  private static String patchKind(String message) {
-    for (String kind : new String[] {"herb", "calquat", "celastrus", "redwood", "hardwood"})
-      if (message.contains(kind)) return kind;
-    if (message.contains("fruit tree")) return "fruit";
-    if (message.contains("tree patch")) return "tree";
-    return null;
-  }
-
-  /** Reports an observed planting, compost or payment with the patches the player is beside. */
-  private void patchAction(String action, String kind) {
-    Player player = client.getLocalPlayer();
-    if (player == null) return;
-    Set<String> nearby = new HashSet<>();
-    int region = player.getWorldLocation().getRegionID();
-    for (Map.Entry<String, Set<Integer>> e : TargetData.HERB_REGIONS.entrySet())
-      if (e.getValue().contains(region)) nearby.add(e.getKey());
-    for (Map.Entry<String, Integer> e : TargetData.GARDENERS.entrySet())
-      for (NPC n : sceneNpcs)
-        if (n.getId() == e.getValue()
-            && n.getWorldLocation().distanceTo(player.getWorldLocation()) <= 20)
-          nearby.add(e.getKey());
-    SwingUtilities.invokeLater(
-        () -> {
-          if (active && panel != null) panel.patchAction(action, kind, nearby);
-        });
-  }
-
-  private void refreshHighlights() {
-    patchObject = null;
-    // deadPatch keeps the last reading until checkPatch reads the patch again, so the targets
-    // chosen below already know a dead crop is there.
-    objectHighlights = Collections.emptyList();
-    npcHighlights = Collections.emptyList();
-    nextObjects = Collections.emptyList();
-    nextNpcs = Collections.emptyList();
-    Guidance step = guidance;
-    Player player = client.getLocalPlayer();
-    if (step == null || player == null) return;
-    int gardenerId = TargetData.GARDENERS.getOrDefault(step.patchId, -1);
-    NPC gardener = null;
-    for (NPC n : sceneNpcs)
-      if (n.getId() == gardenerId
-          && n.getWorldLocation().distanceTo(player.getWorldLocation()) <= 32) {
-        gardener = n;
-        break;
-      }
-    // Find the patch every tick, so step completion can be read whatever is highlighted.
-    TileObject patch = null;
-    if (step.kind.equals("herb")) {
-      // The patch is the farming object (one that changes with growth) at the patch's position.
-      WorldPoint at = TargetData.HERB_POINTS.get(step.patchId);
-      int closest = 2;
-      if (at != null)
-        for (TileObject o : sceneObjects) {
-          if (client.getObjectDefinition(o.getId()).getImpostorIds() == null) continue;
-          int d = o.getWorldLocation().distanceTo(at);
-          if (d < closest) {
-            patch = o;
-            closest = d;
-          }
-        }
-    }
-    // Trees with a known position: the farming object there, found as soon as it's loaded and
-    // whether or not there's a gardener (Summer Shore's Calquat has none).
-    WorldPoint treeAt = step.kind.equals("herb") ? null : TargetData.PATCH_POINTS.get(step.patchId);
-    if (treeAt != null) {
-      int closest = 4;
-      for (TileObject o : sceneObjects) {
-        if (o.getPlane() != treeAt.getPlane()) continue;
-        int d = o.getWorldLocation().distanceTo(treeAt);
-        if (d >= closest) continue;
-        ObjectComposition c = client.getObjectDefinition(o.getId());
-        if (c == null || c.getImpostorIds() == null) continue;
-        c = c.getImpostor();
-        if (c == null || !TargetData.patchLike(c, step.kind)) continue;
-        patch = o;
-        closest = d;
-      }
-    }
-    if (patch == null && !step.kind.equals("herb") && gardener != null) {
-      int closest = 15;
-      for (TileObject o : sceneObjects) {
-        int d = o.getWorldLocation().distanceTo(gardener.getWorldLocation());
-        if (d > closest) continue;
-        ObjectComposition c = client.getObjectDefinition(o.getId());
-        if (c.getImpostorIds() != null) c = c.getImpostor();
-        if (c == null || !TargetData.patchLike(c, step.kind)) continue;
-        if (d < closest) {
-          patch = o;
-          closest = d;
-        }
-      }
-    }
-    patchObject = patch;
-    if (patch == null) deadPatch = false;
-    patchChoppable = offers(patch, "chop") || offers(patch, "chop down");
-    debugGardener = gardener;
-    needsRake = false;
-    if (patch != null) {
-      ObjectComposition c = client.getObjectDefinition(patch.getId());
-      if (c != null && c.getImpostorIds() != null) c = c.getImpostor();
-      if (c != null)
-        for (String action : c.getActions()) needsRake |= "rake".equalsIgnoreCase(action);
-    }
-    // The leprechaun nearest the patch, or failing that the gardener or the player.
-    WorldPoint anchor =
-        patch != null
-            ? patch.getWorldLocation()
-            : gardener != null ? gardener.getWorldLocation() : player.getWorldLocation();
-    NPC leprechaun = null;
-    if (anchor != null) {
-      int closest = 33;
-      for (NPC n : sceneNpcs)
-        if (n.getName() != null && n.getName().toLowerCase(Locale.ROOT).contains("leprechaun")) {
-          int d = n.getWorldLocation().distanceTo(anchor);
-          if (d < closest) {
-            leprechaun = n;
-            closest = d;
-          }
-        }
-    }
-    // Back in the house partway through a stage that came through it: the way back out again.
-    boolean houseReturn = houseReturn();
-    Object current =
-        step.phase.equals("Travel")
-            ? transportObject(step, player)
-            : houseReturn
-                ? houseObject(step, player)
-                : target(step, step.phase, gardener, patch, leprechaun);
-    Object next =
-        step.nextPhase == null || houseReturn
-            ? null
-            : target(step, step.nextPhase, gardener, patch, leprechaun);
-    if (current instanceof TileObject)
-      objectHighlights = patchTiles(step, (TileObject) current, patch, player);
-    if (current instanceof NPC) npcHighlights = Collections.singletonList((NPC) current);
-    // Every crewmember of the charter ship, not just the nearest.
-    if (current instanceof NPC && charterCrew.contains(current)) {
-      List<NPC> crew = new ArrayList<>(charterCrew);
-      crew.remove(current);
-      crew.add(0, (NPC) current);
-      npcHighlights = crew;
-    }
-    // The next step's target is only shown in orange when it isn't already the current one.
-    if (next != current && next instanceof TileObject)
-      nextObjects = patchTiles(step, (TileObject) next, patch, player);
-    if (next != current && next instanceof NPC) nextNpcs = Collections.singletonList((NPC) next);
-    noteSoon = false;
-    noteAdvice = noteAdvice(step, player, patch, leprechaun);
-    if (config.debug()) logNoting(step, leprechaun);
-    if (noteAdvice == null && noteSoon && leprechaun != null) {
-      nextNpcs = Collections.singletonList(leprechaun);
-      nextObjects = Collections.emptyList();
-    }
-    // When noting is advised, the leprechaun is what to click.
-    if (noteAdvice != null && leprechaun != null) {
-      // Noting comes first: just the leprechaun (herbs, then him), nothing else lit up.
-      npcHighlights = Collections.singletonList(leprechaun);
-      objectHighlights = Collections.emptyList();
-      nextObjects = Collections.emptyList();
-      nextNpcs = Collections.emptyList();
-    }
-    // Noting advised before he's in view: nothing at the patch is lit; the line leads to his spot.
-    if (noteAdvice != null && leprechaun == null) {
-      objectHighlights = Collections.emptyList();
-      nextObjects = Collections.emptyList();
-      nextNpcs = Collections.emptyList();
-    }
-    path = walkingPath(step, player);
-  }
-
-  private volatile String idleMessage;
-
-  /** The run timer's text while a run is timed, else null (for the optional timer overlay). */
-  private volatile String runTime;
-
-  String runTime() {
-    return runTime;
-  }
-
-  /** Between runs: when the plants will be ready, or that they are. */
-  String idleMessage() {
-    // Shown briefly after a run, then the overlay gets out of the way; the sidebar keeps it.
-    return System.currentTimeMillis() < idleShownUntil ? idleMessage : null;
-  }
-
-  /** When the "plants still be growin'" line leaves the overlay. */
-  private volatile long idleShownUntil;
-
-  /** Tiles to walk from you to whatever you click next, or the patch itself. */
-  private volatile List<WorldPoint> path = Collections.emptyList();
-
-  List<WorldPoint> path() {
-    return path;
-  }
-
-  private List<WorldPoint> walkingPath(Guidance step, Player player) {
-    WorldPoint from = player.getWorldLocation();
-    // In the house (an instance) Shortest Path has no map, so our own route over the loaded
-    // rooms leads to the portal, nexus, jewellery box, fairy ring or spirit tree.
-    if (client.getTopLevelWorldView().isInstance()) {
-      shortestPath(null);
-      if (objectHighlights.isEmpty()) return Collections.emptyList();
-      TileObject object = objectHighlights.get(0);
-      WorldPoint target = object.getWorldLocation();
-      int w = 1, h = 1;
-      // Its whole footprint (south-west corner and size), so the line stops at the nearest side.
-      if (object instanceof GameObject) {
-        GameObject big = (GameObject) object;
-        w = big.sizeX();
-        h = big.sizeY();
-        net.runelite.api.Point corner = big.getSceneMinLocation();
-        if (corner != null)
-          target =
-              WorldPoint.fromScene(
-                  client.getTopLevelWorldView(), corner.getX(), corner.getY(), big.getPlane());
-      }
-      if (besideArea(from, target, w, h)) return Collections.emptyList();
-      return TilePath.find(client.getTopLevelWorldView(), from, target, w, h);
-    }
-    // Noting herbs: the leprechaun is the destination, not the patch.
-    boolean noting = noteAdvice != null || step.phase.startsWith("Note");
-    // At a patch you've started on, or noting: no line (the highlights say what to click). "At"
-    // is within 10 tiles, not its map square: clicking the patch from further off (Kastori, 33
-    // tiles) hid the line for the rest of the walk.
-    WorldPoint patchAt = TargetData.PATCH_POINTS.get(step.patchId);
-    boolean here =
-        !step.phase.equals("Travel")
-            && (patchAt != null ? patchAt.distanceTo2D(from) <= 10 : inPatchArea(step.patchId, from));
-    // Noting advised but the leprechaun isn't in view yet: head for where he stands.
-    WorldPoint lepSpot =
-        noteAdvice != null && npcHighlights.isEmpty() && patchAt != null
-            ? TargetData.nearestLeprechaun(patchAt)
-            : null;
-    if (lepSpot == null
-        && (noteAdvice != null
-            || here && (noting || step.patchId.equals(workedPatch) || step.patchId.equals(pickingPatch)))) {
-      shortestPath(null);
-      return Collections.emptyList();
-    }
-    WorldPoint to = null;
-    if (lepSpot != null) to = lepSpot;
-    else if (!npcHighlights.isEmpty()) to = npcHighlights.get(0).getWorldLocation();
-    else if (!objectHighlights.isEmpty()) to = objectHighlights.get(0).getWorldLocation();
-    else if (!step.phase.equals("Travel") || arrivedLeg(step))
-      to = TargetData.PATCH_POINTS.get(step.patchId);
-    // Patches have fixed spots; prefer them over a moving NPC so Shortest Path isn't re-asked.
-    WorldPoint fixed = TargetData.PATCH_POINTS.get(step.patchId);
-    // (While travelling, a highlighted guide or object on the way wins: e.g. the Mountain Guide.)
-    if (fixed != null && (!noting || to == null)
-        && (objectHighlights.isEmpty() && npcHighlights.isEmpty() || !step.phase.equals("Travel"))
-        && (!step.phase.equals("Travel") || arrivedLeg(step))) to = fixed;
-    // Charter from Catherby, the crew not in view yet: head for the dock, where they are.
-    String routeText = step.travel.toLowerCase(Locale.ROOT);
-    if (step.phase.equals("Travel")
-        && routeText.contains("charter")
-        && routeText.contains("catherby")
-        && npcHighlights.isEmpty()
-        && from.getPlane() == 0
-        && CATHERBY_DOCK.distanceTo(from) < 100) to = CATHERBY_DOCK;
-    // Landed in Quetzacalli Gorge but the Mountain Guide isn't in view yet: head for his spot.
-    if (step.phase.equals("Travel")
-        && step.travel.toLowerCase(Locale.ROOT).contains("mountain guide")
-        && npcHighlights.isEmpty()
-        && from.getPlane() == 0
-        && GORGE_GUIDE.distanceTo(from) < 100) to = GORGE_GUIDE;
-    // Tree Gnome Village, Elkoy not in view yet: head for his spot, not round the maze.
-    if (step.phase.equals("Travel")
-        && routeText.contains("elkoy")
-        && npcHighlights.isEmpty()
-        && from.getPlane() == 0
-        && ELKOY.distanceTo(from) < 100) to = ELKOY;
-    // The target's full size, so the route goes to its nearest side (trees are often 2×2+).
-    int w = 1, h = 1;
-    if (!npcHighlights.isEmpty() && to != null && to.equals(npcHighlights.get(0).getWorldLocation())) {
-      NPCComposition npc = npcHighlights.get(0).getComposition();
-      w = h = npc == null ? 1 : Math.max(1, npc.getSize());
-    } else if (lepSpot == null) {
-      TileObject object = !objectHighlights.isEmpty() ? objectHighlights.get(0) : patchObject;
-      if (object != null && to != null && object.getWorldLocation().distanceTo(to) <= 3) {
-        to = object.getWorldLocation();
-        if (object instanceof GameObject) {
-          GameObject big = (GameObject) object;
-          w = big.sizeX();
-          h = big.sizeY();
-          // Its south-west corner tile: the object's own position is its middle, which is a tile
-          // off on a 2×2 tree and aimed the route at the wrong side.
-          net.runelite.api.Point corner = big.getSceneMinLocation();
-          if (corner != null)
-            to =
-                WorldPoint.fromScene(
-                    client.getTopLevelWorldView(), corner.getX(), corner.getY(), big.getPlane());
-        } else {
-          // Herb patches aren't GameObjects: take the size from the object's definition, so the
-          // route stops at the patch's edge instead of walking into it.
-          ObjectComposition def = client.getObjectDefinition(object.getId());
-          if (def != null) {
-            w = Math.max(1, def.getSizeX());
-            h = Math.max(1, def.getSizeY());
-          }
-        }
-      }
-    }
-    shortestPath(null); // never drive the Shortest Path plugin any more
-    // Already beside it: no line.
-    if (to == null || to.getPlane() != from.getPlane() || besideArea(from, to, w, h))
-      return Collections.emptyList();
-    // Our own route over the whole map (Shortest Path's collision data, doors, gates and Agility
-    // shortcuts), so fences beyond the loaded area count too. The loaded-scene route is the
-    // fallback while the map loads.
-    List<WorldPoint> route = worldRoute(from, to, w, h);
-    if (!route.isEmpty()) return route;
-    return TilePath.find(client.getTopLevelWorldView(), from, to);
-  }
-
-  /** Whether a tile is on or next to a w × h area whose south-west corner is {@code corner}. */
-  private static boolean besideArea(WorldPoint tile, WorldPoint corner, int w, int h) {
-    int dx = Math.max(0, Math.max(corner.getX() - tile.getX(), tile.getX() - (corner.getX() + w - 1)));
-    int dy = Math.max(0, Math.max(corner.getY() - tile.getY(), tile.getY() - (corner.getY() + h - 1)));
-    return dx + dy <= 1; // on it, or beside a side (corners don't count)
-  }
-
-  /** The last whole-map route and where it was going, reused while you walk along it. */
-  private List<WorldPoint> worldRoute = Collections.emptyList();
-  private WorldPoint worldRouteTarget;
-
-  /**
-   * The whole-map route to {@code to}: the cached one, trimmed to where you are, while you're on
-   * it; otherwise a fresh search.
-   */
-  private List<WorldPoint> worldRoute(WorldPoint from, WorldPoint to, int w, int h) {
-    if (!WorldPath.ready()) return Collections.emptyList(); // still loading the map
-    if (to.equals(worldRouteTarget)) {
-      // Still on the saved route: draw it from the route tile nearest you onwards. The saved
-      // route itself is kept whole, so standing still gives the same line every tick.
-      int nearest = -1, best = 2;
-      for (int i = 0; i < worldRoute.size(); i++) {
-        int d = worldRoute.get(i).distanceTo(from);
-        if (d < best) {
-          best = d;
-          nearest = i;
-        }
-      }
-      if (nearest >= 0) return new ArrayList<>(worldRoute.subList(nearest + 1, worldRoute.size()));
-      // No route to this target last time: only try again every few ticks.
-      if (worldRoute.isEmpty() && client.getTickCount() - worldRouteSearchedAt < 10)
-        return worldRoute;
-    }
-    worldRouteTarget = to;
-    worldRouteSearchedAt = client.getTickCount();
-    worldRoute = WorldPath.find(from, to, w, h);
-    return worldRoute;
-  }
-
-  private int worldRouteSearchedAt;
-
-  private WorldPoint shortestPathTarget;
-  private long shortestPathChecked;
-  private boolean shortestPathOn;
-
-  /** Whether the Shortest Path plugin is installed and switched on (checked every 10 seconds). */
-  private boolean shortestPathEnabled() {
-    long now = System.currentTimeMillis();
-    if (now - shortestPathChecked > 10_000) {
-      shortestPathChecked = now;
-      shortestPathOn = false;
-      for (Plugin p : pluginManager.getPlugins())
-        if ("Shortest Path".equals(p.getName()) && pluginManager.isPluginEnabled(p))
-          shortestPathOn = true;
-    }
-    return shortestPathOn;
-  }
-
-  /**
-   * Sets (or with null, clears) Shortest Path's target through its plugin-message API, the way
-   * other plugins drive it. Only sent when the target changes.
-   */
-  private void shortestPath(WorldPoint target) {
-    if (Objects.equals(target, shortestPathTarget)) return;
-    if (target == null && shortestPathTarget == null) return;
-    shortestPathTarget = target;
-    if (!shortestPathEnabled()) return;
-    if (target == null) {
-      eventBus.post(new PluginMessage("shortestpath", "clear"));
-      return;
-    }
-    Map<String, Object> data = new HashMap<>();
-    data.put("target", target);
-    eventBus.post(new PluginMessage("shortestpath", "path", data));
-  }
-
-  /**
-   * On a Travel step, once teleported out: the rest is on foot towards the patch. Before the
-   * teleport there's no path, however near the patch is (e.g. Falador Park to Taverley): the
-   * teleport is the step. Walking routes ("Walk to …") have no teleport, so they path straight away.
-   */
-  private boolean arrivedLeg(Guidance step) {
-    WorldPoint at = TargetData.PATCH_POINTS.get(step.patchId);
-    Player player = client.getLocalPlayer();
-    boolean onFoot = step.travel.toLowerCase(Locale.ROOT).startsWith("walk");
-    return at != null
-        && player != null
-        && (teleportedThisLeg || onFoot)
-        && at.distanceTo(player.getWorldLocation()) < 120;
-  }
-
-  /** Where the Mountain Guide stands in Quetzacalli Gorge (Shortest Path's transport data). */
-  private static final WorldPoint GORGE_GUIDE = new WorldPoint(1486, 3232, 0);
-
-  /** Where Elkoy stands outside the Tree Gnome Village maze (Shortest Path's transport data). */
-  private static final WorldPoint ELKOY = new WorldPoint(2515, 3159, 0);
-
-  private volatile String noteAdvice;
-
-  /** Shown when herbs should be noted now, with the leprechaun and grimy herbs highlighted. */
-  String noteAdvice() {
-    return noteAdvice;
-  }
-
-  /** Notes only when the inventory fills up while there are still herbs to pick. */
-  /** The patch whose leprechaun you've been told to note at on the way in, or null. */
-  private String noteOnWayIn;
-
-  private static String noteOnWayInText(String room, Guidance step) {
-    return "Note your herbs on the way: " + room + ", this patch gives about " + step.herbsIfAlive;
-  }
-
-  /** e.g. "5 free slots", or "5 free slots + 12 in the herb sack". */
-  private static String roomText(int free, int sackRoom) {
-    return free + " free slots" + (sackRoom > 0 ? " + " + sackRoom + " in the herb sack" : "");
-  }
-
-  private String noteAdvice(Guidance step, Player player, TileObject patch, NPC leprechaun) {
-    ItemContainer inventory = client.getItemContainer(InventoryID.INV);
-    if (inventory == null) return null;
-    // Herbs, fruit, Calquat or Celastrus bark picked here and not yet noted.
-    Set<Integer> produce = noteItems();
-    int used = 0, grimy = 0;
-    for (Item item : inventory.getItems())
-      if (item.getId() > 0) {
-        used++;
-        if (produce.contains(item.getId())) grimy++;
-      }
-    int free = 28 - used;
-    if (grimy == 0) return null;
-    boolean herbs = step.kind.equals("herb");
-    // Herbs fill an open herb sack before the inventory, so its room counts too.
-    int sackRoom = herbs ? sackRoom() : 0, room = free + sackRoom;
-    WorldPoint now = player.getWorldLocation();
-    // Leaving a herb patch for another: if the next one's herbs won't fit with 2 to spare, note
-    // at this patch's leprechaun first (e.g. Catherby before Troll Stronghold).
-    if (herbs
-        && step.phase.equals("Travel")
-        && "herb".equals(step.prevKind)
-        && leprechaun != null
-        && !client.getTopLevelWorldView().isInstance()
-        && inPatchArea(step.prevPatchId, now)
-        && room < step.herbsIfAlive + 2
-        && noteHereShorter(step.prevPatchId, step.patchId, step.travel))
-      return "Note your herbs here: " + roomText(free, sackRoom)
-          + ", the next patch gives about " + step.herbsIfAlive;
-    boolean started = step.patchId.equals(pickingPatch);
-    // On the way in, when this patch's herbs won't fit and the leprechaun comes before the patch
-    // (e.g. Falador): note as you pass him. Once advised it stays until you've noted or started
-    // picking. When he's past the patch (e.g. Catherby), pick until full instead (below).
-    WorldPoint at = TargetData.PATCH_POINTS.get(step.patchId);
-    WorldPoint here = player.getWorldLocation();
-    boolean approaching =
-        herbs
-            && (step.phase.equals("Travel") || step.phase.equals("Harvest"))
-            && !started
-            // The same rule as noting before leaving: room for this patch's herbs if it's alive,
-            // with 2 to spare.
-            && room < step.herbsIfAlive + 2
-            && at != null
-            && at.getPlane() == here.getPlane()
-            // In the patch's own area (RuneLite's farming regions for it), not just anywhere.
-            && TargetData.HERB_REGIONS
-                .getOrDefault(step.patchId, Collections.emptySet())
-                .contains(here.getRegionID());
-    // Where he stands: NPCs only show within about 15 tiles, so until then his known spot.
-    WorldPoint lepAt =
-        leprechaun != null ? leprechaun.getWorldLocation() : at == null ? null : TargetData.nearestLeprechaun(at);
-    if (!approaching) noteOnWayIn = null;
-    else if (step.patchId.equals(noteOnWayIn)) return noteOnWayInText(roomText(free, sackRoom), step);
-    else if (lepAt != null && lepAt.distanceTo(here) < at.distanceTo(here)) {
-      noteOnWayIn = step.patchId;
-      return noteOnWayInText(roomText(free, sackRoom), step);
-    }
-    // Otherwise noting only happens when the inventory fills up while picking: pick until full,
-    // note at that patch's leprechaun, then finish.
-    if (!arrived(step.patchId, player)) return null;
-    boolean harvesting = step.phase.equals("Harvest");
-    boolean stillToPick = false;
-    if (patch != null) {
-      ObjectComposition c = client.getObjectDefinition(patch.getId());
-      if (c != null && c.getImpostorIds() != null) c = c.getImpostor();
-      if (c != null)
-        for (String a : c.getActions())
-          stillToPick |=
-              a != null
-                  && (a.toLowerCase(Locale.ROOT).startsWith("pick")
-                      || a.toLowerCase(Locale.ROOT).startsWith("harvest"));
-    }
-    // Herbs likely to fill the inventory before the patch is done: the herbs and the leprechaun
-    // are next (orange), so noting is ready before it's full.
-    int left = Math.max(1, step.herbsIfAlive - (step.patchId.equals(pickingPatch) ? pickedHere : 0));
-    noteSoon = herbs && harvesting && stillToPick && room > 0 && room < left;
-    // Composting, the last step here, with a herb patch next: if you'll have to note before it
-    // and this leprechaun is the shorter walk, the herbs and him are next, not the teleport (it
-    // turns into "note here" once compost is done).
-    noteSoon |=
-        herbs
-            && step.phase.equals("Compost")
-            && "herb".equals(step.nextKind)
-            && leprechaun != null
-            && room < step.nextHerbsIfAlive + 2
-            && noteHereShorter(step.patchId, step.nextPatchId, step.nextTravel);
-    // Full with more still to harvest (any crop): note at this patch's leprechaun, then finish.
-    // Herbs still go into an open herb sack with room, however full the inventory is.
-    if (harvesting && stillToPick && room == 0)
-      return "Inventory full: note your "
-          + (herbs ? "herbs" : step.produce.toLowerCase(Locale.ROOT))
-          + " at this leprechaun, then finish "
-          + (step.kind.equals("celastrus") ? "harvesting" : "picking");
-    return null;
-  }
-
-  /** Debug, per stage: one leg from its teleport click to standing next to its patch. */
-  private String legPatch;
-
-  private int legStart, legLastClick, legTeleport, legTransport, legTiles, legWalkTicks, legJumps;
-  private boolean legDone;
-  private WorldPoint legLast;
-
-  /**
-   * Debug: measures this stage's leg in ticks and tiles, logged once you're next to the patch:
-   * the teleport (click to landing), any later transport (charter, boat, guide), and the tiles
-   * walked, as running ticks (2 tiles a tick) and the ticks actually spent walking.
-   */
-  private void trackLeg() {
-    Guidance step = guidance;
-    Player player = client.getLocalPlayer();
-    if (step == null || player == null) {
-      legPatch = null;
-      return;
-    }
-    int tick = client.getTickCount();
-    WorldPoint here = player.getWorldLocation();
-    if (!step.patchId.equals(legPatch)) {
-      legPatch = step.patchId;
-      legStart = tick;
-      legTeleport = legTransport = legTiles = legWalkTicks = legJumps = 0;
-      legDone = false;
-      legLast = here;
-      return;
-    }
-    if (legDone) return;
-    // Before the first jump, the leg starts when this stage's teleport or transport is used:
-    // walking about the bank beforehand doesn't count.
-    int used = Math.max(step.patchId.equals(teleportClickedPatch) ? teleportClickedAt : -1, stepTransportAt);
-    if (legJumps == 0 && used > legStart) {
-      legStart = used;
-      legTiles = legWalkTicks = 0;
-    }
-    WorldPoint before = legLast;
-    legLast = here;
-    if (before != null && !before.equals(here)) {
-      boolean jump = before.getPlane() != here.getPlane() || before.distanceTo(here) > 2;
-      if (jump) {
-        // The teleport from its own click (the leg's start); later transport (boat, charter,
-        // guide) from the click that set it off.
-        if (legJumps++ == 0) legTeleport += tick - legStart;
-        else legTransport += tick - Math.max(legStart, legLastClick);
-      } else {
-        legTiles += before.distanceTo(here);
-        legWalkTicks++;
-      }
-    }
-    TileObject patch = patchObject;
-    if (patch == null || patch.getPlane() != here.getPlane() || patch.getWorldLocation().distanceTo(here) > 2)
-      return;
-    legDone = true;
-    debugLog(
-        "leg " + step.patchId + ": teleport " + legTeleport + " ticks · transport " + legTransport
-            + " ticks · walked " + legTiles + " tiles (" + (legTiles + 1) / 2 + " ticks running, "
-            + legWalkTicks + " actual) · total " + (tick - legStart) + " ticks");
-  }
-
-  /**
-   * The target to highlight: just it, or, when it's a patch made of several tiles (the Farming
-   * Guild redwood), every one of its tiles, the nearest to you first so the path goes there.
-   */
-  private List<TileObject> patchTiles(Guidance step, TileObject target, TileObject patch, Player player) {
-    int[] area = TargetData.PATCH_AREAS.get(step.patchId);
-    if (area == null || target != patch) return Collections.singletonList(target);
-    List<TileObject> tiles = new ArrayList<>();
-    for (TileObject o : sceneObjects) {
-      WorldPoint at = o.getWorldLocation();
-      if (at.getPlane() != patch.getPlane()
-          || at.getX() < area[0] || at.getX() > area[2] || at.getY() < area[1] || at.getY() > area[3])
-        continue;
-      ObjectComposition c = client.getObjectDefinition(o.getId());
-      if (c != null && c.getImpostorIds() != null) c = c.getImpostor();
-      if (c != null && TargetData.patchLike(c, step.kind)) tiles.add(o);
-    }
-    if (!tiles.contains(target)) tiles.add(target);
-    WorldPoint you = player.getWorldLocation();
-    tiles.sort(Comparator.comparingInt(o -> o.getWorldLocation().distanceTo(you)));
-    return tiles;
-  }
-
-  /** Debug: noting advice last logged, and the stage last logged as started. */
-  private String lastNoteLog, lastStageLog;
-
-  /** Debug: a line when a stage starts, and when noting advice turns on, off or changes. */
-  private void logNoting(Guidance step, NPC leprechaun) {
-    ItemContainer inventory = client.getItemContainer(InventoryID.INV);
-    int used = 0, unnoted = 0;
-    Set<Integer> produce = noteItems();
-    if (inventory != null)
-      for (Item item : inventory.getItems())
-        if (item.getId() > 0) {
-          used++;
-          if (produce.contains(item.getId())) unnoted++;
-        }
-    if (!step.patchId.equals(lastStageLog)) {
-      lastStageLog = step.patchId;
-      debugLog(
-          "stage: " + step.patchId + " (" + step.kind + ") · " + step.travel + " · steps " + step.phases
-              + " · " + (28 - used) + " free slots · expected herbs " + step.herbsIfAlive
-              + " (with deaths " + step.herbsPerPatch + ")");
-    }
-    String state = noteAdvice + "|" + noteSoon;
-    if (state.equals(lastNoteLog)) return;
-    lastNoteLog = state;
-    debugLog(
-        "noting: " + (noteAdvice != null ? "advice '" + noteAdvice + "'" : noteSoon ? "soon (orange)" : "off")
-            + " · " + step.phase + " · free " + (28 - used) + " · unnoted produce " + unnoted
-            + " · expected " + step.herbsIfAlive + " · picked here "
-            + (step.patchId.equals(pickingPatch) ? pickedHere : 0) + " · previous stage "
-            + step.prevPatchId + " (" + step.prevKind + ") · leprechaun "
-            + (leprechaun == null ? "none" : leprechaun.getWorldLocation().getX() + "," + leprechaun.getWorldLocation().getY()));
-  }
-
-  /** Tiles to walk between two spots along real paths, or straight-line tiles without a route. */
-  private static int walkTiles(WorldPoint a, WorldPoint b) {
-    if (a.getPlane() != b.getPlane()) return 1000;
-    if (a.distanceTo(b) <= 1) return 0;
-    List<WorldPoint> route = WorldPath.find(a, b);
-    return route.isEmpty() ? a.distanceTo(b) : route.size();
-  }
-
-  /**
-   * Where a route's teleport most likely lands: the spot its matching teleport rows name most
-   * often (a ring's or spell's several rows agree), nearest the patch on a tie; the patch itself
-   * when none is within 100 tiles.
-   */
-  static WorldPoint likelyLanding(List<WorldPoint> landings, WorldPoint patch) {
-    Map<WorldPoint, Integer> count = new HashMap<>();
-    for (WorldPoint l : landings)
-      if (l.getPlane() == patch.getPlane() && l.distanceTo(patch) < 100) count.merge(l, 1, Integer::sum);
-    WorldPoint best = patch;
-    int most = 0;
-    for (Map.Entry<WorldPoint, Integer> e : count.entrySet())
-      if (e.getValue() > most
-          || e.getValue() == most && e.getKey().distanceTo(patch) < best.distanceTo(patch)) {
-        best = e.getKey();
-        most = e.getValue();
-      }
-    return best;
-  }
-
-  /** Noting costs per pair of stages ("from>to"): {here, detour at the next patch}, in tiles. */
-  private final Map<String, int[]> noteCosts = new HashMap<>();
-
-  /**
-   * Whether noting at the previous herb patch's leprechaun is a shorter walk than noting at this
-   * stage's: here it's patch to leprechaun (you teleport from there); there it's the detour from
-   * where its teleport lands, via its leprechaun, to the patch (about 0 when he's on the way in,
-   * as at Falador). True when either isn't known.
-   */
-  private boolean noteHereShorter(String fromPatch, String toPatch, String toTravel) {
-    if (fromPatch == null || toPatch == null || toTravel == null) return true;
-    String key = fromPatch + ">" + toPatch;
-    int[] costs = noteCosts.get(key);
-    if (costs == null) {
-      WorldPoint prev = TargetData.HERB_POINTS.get(fromPatch);
-      WorldPoint next = TargetData.HERB_POINTS.get(toPatch);
-      if (prev == null || next == null) return true;
-      WorldPoint lepHere = TargetData.nearestLeprechaun(prev), lepNext = TargetData.nearestLeprechaun(next);
-      if (lepHere == null || lepNext == null) return true;
-      WorldPoint land = likelyLanding(TeleportData.landingsFor(toTravel), next);
-      int here = walkTiles(prev, lepHere);
-      int detour = Math.max(0, walkTiles(land, lepNext) + walkTiles(lepNext, next) - walkTiles(land, next));
-      costs = new int[] {here, detour};
-      // Only kept once the map is loaded, so a straight-line guess isn't stuck.
-      if (WorldPath.ready()) {
-        noteCosts.put(key, costs);
-        debugLog(
-            "note costs " + key + ": here " + here + " tiles, detour at the next patch " + detour
-                + " tiles (landing " + land.getX() + "," + land.getY() + ")");
-      }
-    }
-    return costs[0] < costs[1];
-  }
-
-  /** Herbs picked at {@link #pickingPatch} so far. */
-  private int pickedHere;
-
-  /** The patch you've done something at on this stage (picked, raked, planted…), so no path. */
-  private volatile String workedPatch;
-
-  /** Picking herbs that will likely fill the inventory: herbs and leprechaun are next. */
-  private volatile boolean noteSoon;
-
-  boolean noteSoon() {
-    return noteSoon;
-  }
-
-  /** The herb patch you've started picking at (set by the first herb picked there). */
-  private volatile String pickingPatch;
-
-  /**
-   * The fairy ring or spirit tree to use on this Travel step, once it's in view (e.g. inside the
-   * house after the house teleport). Also matches the combined spiritual fairy tree.
-   */
-  /** Set once this patch's trip has teleported out of the house or through the ring/tree. */
-  private boolean jumped;
-
-  private String jumpPatch;
-
-  /** The charter ship's crew in view on a charter leg, to highlight them all. */
-  private List<NPC> charterCrew = Collections.emptyList();
-
-  /** This patch's trip has teleported at least once (so walking to the patch is what's left). */
-  private volatile boolean teleportedThisLeg;
-
-  private Object transportObject(Guidance step, Player player) {
-    String travel = step.travel.toLowerCase(Locale.ROOT);
-    boolean house = client.getTopLevelWorldView().isInstance();
-    // Already through the fairy ring or spirit tree: Tree Gnome Village's railing and Elkoy are
-    // still to come, but nothing else is.
-    // After the quetzal lands at Quetzacalli Gorge: the Mountain Guide takes you to Auburn Valley.
-    // (The whistle isn't a ring or tree, so no jump is waited for: the guide is only ever there.)
-    if (travel.contains("mountain guide")) {
-      NPC guide = null;
-      int closest = Integer.MAX_VALUE;
-      for (NPC n : sceneNpcs) {
-        if (n.getName() == null || !n.getName().equalsIgnoreCase("mountain guide")) continue;
-        int d = n.getWorldLocation().distanceTo(player.getWorldLocation());
-        if (d < closest) {
-          guide = n;
-          closest = d;
-        }
-      }
-      return guide;
-    }
-    // Walked out of the house mid-trip: its outside portal (within 10 tiles) leads back in.
-    outsidePortalShown = false;
-    if (!house && step.patchId.equals(leftHousePatch) && !jumped) {
-      TileObject portal = nearestObject(player, 10, "portal");
-      if (portal != null) {
-        outsidePortalShown = true;
-        return portal;
-      }
-    }
-    // After the charter: on the ship, its gangplank; on the dock, the rowboat on (Corsair Cove's
-    // to Anglers' Retreat, by ID: the one back from there is another).
-    charterCrew = Collections.emptyList();
-    if (travel.contains("charter") && !house && chartered()) {
-      if (player.getWorldLocation().getPlane() > 0) return nearestObject(player, 10, "gangplank");
-      if (travel.contains("rowboat")) {
-        TileObject boat = null;
-        int closest = 60;
-        for (TileObject o : sceneObjects) {
-          if (o.getId() != CORSAIR_ROWBOAT) continue;
-          int d = o.getWorldLocation().distanceTo(player.getWorldLocation());
-          if (d < closest) {
-            boat = o;
-            closest = d;
-          }
-        }
-        return boat;
-      }
-      return null;
-    }
-    // A charter leg (e.g. Catherby to Corsair Cove): the ship's Trader Crewmembers on the dock.
-    if (travel.contains("charter") && !house) {
-      NPC crew = null;
-      int closest = 25;
-      List<NPC> all = new ArrayList<>();
-      for (NPC n : sceneNpcs) {
-        if (n.getName() == null || !n.getName().equalsIgnoreCase("trader crewmember")) continue;
-        int d = n.getWorldLocation().distanceTo(player.getWorldLocation());
-        if (d >= 25) continue;
-        all.add(n);
-        if (d < closest) {
-          crew = n;
-          closest = d;
-        }
-      }
-      charterCrew = all; // all of them are highlighted; the nearest leads the path
-      if (crew != null) return crew;
-    }
-    // Fossil Island: after the pendant, the Magic Mushtree by the House on the Hill takes you on
-    // to Mushroom Meadow. Once it's been used, the Meadow's own mushtree isn't lit up.
-    if (travel.contains("mushtree") && !house) {
-      if (mushtreeUsed) return null;
-      TileObject mushtree = nearestObject(player, 40, "magic mushtree");
-      if (mushtree != null) return mushtree;
-    }
-    if (jumped && !travel.contains("elkoy")) return null;
-    // Tree Gnome Village: squeeze through the loose railing, then follow Elkoy through the maze.
-    if (travel.contains("elkoy") && !house) {
-      NPC elkoy = null;
-      for (NPC n : sceneNpcs)
-        if (n.getName() != null && n.getName().equalsIgnoreCase("elkoy")) elkoy = n;
-      TileObject railing = nearestObject(player, 30, "railing");
-      if (railing != null && !railingDone) return railing;
-      if (elkoy != null) return elkoy;
-      // Already through the spirit tree: never fall back to highlighting the village's own tree.
-      if (jumped) return null;
-    }
-    List<String> names = routeObjects(step.travel, house);
-    if (names.isEmpty()) return null;
-    return nearestObject(player, 40, names.toArray(new String[0]));
-  }
-
-  /** The fairy ring, spirit tree, jewellery box or portal (nexus) this route uses. */
-  private static List<String> routeObjects(String route, boolean house) {
-    String travel = route.toLowerCase(Locale.ROOT);
-    List<String> names = new ArrayList<>();
-    // A route through the house uses the house's own ring or tree: nothing outside it.
-    if (!house && (travel.startsWith("house ") || travel.startsWith("poh "))) return names;
-    if (travel.contains("fairy ring")) names.addAll(Arrays.asList("fairy ring", "spiritual fairy tree"));
-    if (travel.contains("spirit tree")) names.addAll(Arrays.asList("spirit tree", "spiritual fairy tree"));
-    // In the house: the jewellery box or the portal (nexus) the route uses.
-    if (house && travel.contains("jewellery box")) names.add("jewellery box");
-    // The nexus or the destination's own portal (e.g. "Ardougne portal"), never the plain exit
-    // "Portal" by the house entrance.
-    if (house && travel.contains("portal")) {
-      names.add("nexus");
-      String place = FarmingInventoryOverlay.destination(route);
-      if (place.length() > 3) names.add(place);
-    }
-    return names;
-  }
-
-  /**
-   * In the house partway through a stage whose route came through it (e.g. back for something
-   * forgotten): its nexus, portal, box, ring or tree leads back out. The stage keeps its place.
-   */
-  boolean houseReturn() {
-    Guidance step = guidance;
-    if (step == null || step.phase.equals("Travel")) return false;
-    if (!client.getTopLevelWorldView().isInstance()) return false;
-    String travel = step.travel.toLowerCase(Locale.ROOT);
-    return travel.startsWith("house ") || travel.startsWith("poh ") || travel.contains("your house");
-  }
-
-  /** The way back out of the house for this stage: see {@link #houseReturn()}. */
-  private TileObject houseObject(Guidance step, Player player) {
-    List<String> names = routeObjects(step.travel, true);
-    return names.isEmpty() ? null : nearestObject(player, 40, names.toArray(new String[0]));
-  }
-
-  /** Corsair Cove's rowboat to Anglers' Retreat. */
-  private static final int CORSAIR_ROWBOAT = 58637;
-
-  /** The stage whose charter has been sailed ("You pay … and sail to …"), or null. */
-  private volatile String charteredPatch;
-
-  /** This stage's charter is done: its crew aren't lit any more, the gangplank and boat are. */
-  boolean chartered() {
-    Guidance step = guidance;
-    return step != null && step.patchId.equals(charteredPatch);
-  }
-
-  /** On the Catherby dock, in sight of the charter ship's crew. */
-  private static final WorldPoint CATHERBY_DOCK = new WorldPoint(2798, 3414, 0);
-
-  /** The nearest remembered object whose name contains one of these (lower case) words. */
-  private TileObject nearestObject(Player player, int within, String... names) {
-    TileObject best = null;
-    int closest = within;
-    for (TileObject o : sceneObjects) {
-      ObjectComposition c = client.getObjectDefinition(o.getId());
-      if (c != null && c.getImpostorIds() != null) c = c.getImpostor();
-      if (c == null || c.getName() == null) continue;
-      String n = c.getName().toLowerCase(Locale.ROOT);
-      boolean match = false;
-      for (String name : names) match |= n.contains(name);
-      if (!match) continue;
-      int d = o.getWorldLocation().distanceTo(player.getWorldLocation());
-      if (d < closest) {
-        best = o;
-        closest = d;
-      }
-    }
-    return best;
-  }
-
-  /** Set once you squeeze through the Tree Gnome Village railing on this patch's trip. */
-  private boolean railingDone;
-
-  /** Set once you've clicked a Magic Mushtree on this patch's trip (Fossil Island). */
-  private boolean mushtreeUsed;
-
-  private String railingPatch;
-
-  /** Interfaces open last debug scan, and widgets/objects already logged, to log each once. */
-  private Set<Integer> debugGroups = new HashSet<>();
-
-  private final Set<String> debugSeen = new HashSet<>();
-
-  /**
-   * Debug only, into client.log: which interfaces open and close; every widget naming the
-   * route's charter port (or any charter port) in its name, text or actions; and boats, crew and
-   * ships within 15 tiles with their IDs and tiles.
-   */
-  private void debugScan() {
-    if (client.getGameState() != GameState.LOGGED_IN) return;
-    Widget[] roots = client.getWidgetRoots();
-    Set<Integer> groups = new HashSet<>();
-    if (roots != null) for (Widget root : roots) if (root != null) groups.add(root.getId() >>> 16);
-    for (int g : groups) if (!debugGroups.contains(g)) debugLog("interface opened: group " + g);
-    for (int g : debugGroups) if (!groups.contains(g)) debugLog("interface closed: group " + g);
-    debugGroups = groups;
-    Guidance step = guidance;
-    List<String> words = new ArrayList<>(DEBUG_PORTS);
-    if (step != null) {
-      java.util.regex.Matcher to =
-          java.util.regex.Pattern.compile("charter to ([a-z' ]+?)(;|,| then|$)")
-              .matcher(step.travel.toLowerCase(Locale.ROOT));
-      if (to.find()) words.add(0, to.group(1).trim());
-    }
-    if (roots != null) for (Widget root : roots) debugWidgets(root, words, 0);
-    Player player = client.getLocalPlayer();
-    if (player == null || client.getTickCount() % 5 != 0) return;
-    WorldPoint here = player.getWorldLocation();
-    // Every tool leprechaun in the loaded area, wherever you are, with the herb patches whose
-    // area it's in: their tiles decide where noting is the shorter walk.
-    for (NPC n : sceneNpcs) {
-      if (n.getName() == null || !n.getName().toLowerCase(Locale.ROOT).contains("leprechaun")) continue;
-      WorldPoint at = n.getWorldLocation();
-      List<String> patches = new ArrayList<>();
-      for (Map.Entry<String, Set<Integer>> e : TargetData.HERB_REGIONS.entrySet())
-        if (e.getValue().contains(at.getRegionID())) patches.add(e.getKey());
-      String line =
-          "leprechaun " + n.getName() + " at " + at.getX() + "," + at.getY() + "," + at.getPlane()
-              + " region " + at.getRegionID() + " herb patches " + patches;
-      if (debugSeen.add(line)) debugLog(line);
-    }
-    for (NPC n : sceneNpcs) {
-      String name = n.getName() == null ? "" : n.getName().toLowerCase(Locale.ROOT);
-      if (n.getWorldLocation().distanceTo(here) > 15 || !debugThing(name)) continue;
-      WorldPoint at = n.getWorldLocation();
-      String line = "npc " + n.getName() + " id " + n.getId() + " at " + at.getX() + "," + at.getY() + "," + at.getPlane();
-      if (debugSeen.add(line)) debugLog(line);
-    }
-    Tile[][][] tiles = client.getTopLevelWorldView().getScene().getTiles();
-    int plane = client.getTopLevelWorldView().getPlane();
-    for (Tile[] column : tiles[plane])
-      for (Tile tile : column) {
-        if (tile == null || tile.getWorldLocation().distanceTo(here) > 15) continue;
-        List<TileObject> objects = new ArrayList<>();
-        objects.add(tile.getGroundObject());
-        objects.add(tile.getDecorativeObject());
-        objects.add(tile.getWallObject());
-        objects.addAll(Arrays.asList(tile.getGameObjects()));
-        for (TileObject o : objects) {
-          if (o == null) continue;
-          ObjectComposition c = client.getObjectDefinition(o.getId());
-          if (c != null && c.getImpostorIds() != null && c.getImpostor() != null) c = c.getImpostor();
-          if (c == null || c.getName() == null || !debugThing(c.getName().toLowerCase(Locale.ROOT)))
-            continue;
-          WorldPoint at = o.getWorldLocation();
-          String line =
-              "object " + c.getName() + " id " + o.getId() + " at " + at.getX() + "," + at.getY() + ","
-                  + at.getPlane() + " actions " + Arrays.toString(c.getActions());
-          if (debugSeen.add(line)) debugLog(line);
-        }
-      }
-  }
-
-  /** Charter ports, to find them on the charter map and list whatever the route. */
-  private static final List<String> DEBUG_PORTS =
-      Arrays.asList(
-          "corsair", "catherby", "port sarim", "brimhaven", "musa point", "port khazard",
-          "port phasmatys", "shipyard", "port tyras", "prifddinas", "piscarilius", "anglers");
-
-  private static boolean debugThing(String name) {
-    for (String w : new String[] {"boat", "row", "crew", "ship", "charter", "captain", "sail", "angler"})
-      if (name.contains(w)) return true;
-    return false;
-  }
-
-  private void debugWidgets(Widget w, List<String> words, int depth) {
-    if (w == null || w.isHidden() || depth > 12) return;
-    StringBuilder all = new StringBuilder();
-    if (w.getName() != null) all.append(w.getName()).append(' ');
-    if (w.getText() != null) all.append(w.getText()).append(' ');
-    if (w.getActions() != null) for (String a : w.getActions()) if (a != null) all.append(a).append(' ');
-    String text = Text.removeTags(all.toString()).toLowerCase(Locale.ROOT);
-    for (String word : words)
-      if (text.contains(word)) {
-        String line =
-            "widget group " + (w.getId() >>> 16) + " child " + (w.getId() & 0xFFFF) + " index "
-                + w.getIndex() + " type " + w.getType() + " name '" + Text.removeTags(String.valueOf(w.getName()))
-                + "' text '" + Text.removeTags(String.valueOf(w.getText())) + "' actions "
-                + Arrays.toString(w.getActions()) + " bounds " + w.getBounds();
-        if (debugSeen.add(line)) debugLog(line);
-        break;
-      }
-    for (Widget[] kids : new Widget[][] {w.getStaticChildren(), w.getDynamicChildren(), w.getNestedChildren()})
-      if (kids != null) for (Widget k : kids) debugWidgets(k, words, depth + 1);
+    patchEvents.gameMessage(e);
   }
 
   @Subscribe
   public void onMenuOptionClicked(MenuOptionClicked e) {
-    legLastClick = client.getTickCount();
-    debugLog(
+    debugTools.clicked();
+    debug.log(
         "click '" + Text.removeTags(e.getMenuOption()) + "' on '" + Text.removeTags(e.getMenuTarget())
             + "' action " + e.getMenuAction() + " id " + e.getId() + " param0 " + e.getParam0()
             + " param1 " + e.getParam1() + " (group " + (e.getParam1() >>> 16) + " child "
             + (e.getParam1() & 0xFFFF) + ") item " + e.getItemId());
+    Guidance step = guidance;
     // Anything done to the guided patch (pick, rake, use an item on it…): no more line to it.
-    TileObject worked = patchObject;
-    Guidance working = guidance;
-    if (worked != null && working != null && e.getId() == worked.getId()) workedPatch = working.patchId;
+    TileObject worked = patch.object();
+    if (worked != null && step != null && e.getId() == worked.getId()) progress.setWorkedPatch(step.patchId);
     String option = Text.removeTags(e.getMenuOption()).toLowerCase(Locale.ROOT);
     String target = Text.removeTags(e.getMenuTarget()).toLowerCase(Locale.ROOT);
     // The magic cape's Spellbook option: a change of spellbook soon after counts as one of the
     // 5 a day.
     if (option.equals("spellbook") && (target.contains("magic cape") || target.contains("max cape")))
-      capeSwapClickedAt = client.getTickCount();
-    Guidance step = guidance;
+      spellbook.capeClicked();
     if (step == null) return;
-    // Fairy rings, spirit trees, portals and boxes: the next big jump is the route's own.
-    // (Not the house's plain exit "Portal".)
-    if (target.contains("fairy") || target.contains("spirit tree")
-        || target.contains("portal") && !target.equals("portal")
-        || target.contains("jewellery box") || target.contains("nexus")) {
-      usedTransport = true;
-      stepTransportAt = client.getTickCount();
-    }
-    // A choice in a chat dialogue while travelling, e.g. a ring of wealth's "Falador Park".
-    if (step.phase.equals("Travel") && e.getMenuAction() == MenuAction.WIDGET_CONTINUE)
-      stepTransportAt = client.getTickCount();
-    // A teleport on this step's item (or a teleport spell) was clicked: it's under way.
-    if (step.phase.equals("Travel") && !TELEPORT_NOT.contains(option)) {
-      boolean ours = option.equals("cast") && target.contains("teleport");
-      // Choosing where to go on a quetzal map, spirit tree list, portal nexus or jewellery box.
-      ours |= destinationMenuShowing();
-      for (String item : step.items)
-        ours |= target.startsWith(menuName(FarmingPlanner.normalize(item)));
-      if (ours) {
-        teleportClickedAt = client.getTickCount();
-        teleportClickedPatch = step.patchId;
-        stepTransportAt = client.getTickCount();
-        // The run has set off: a used-up teleport (a scroll, a ring's last charge) mustn't send
-        // the guide back to Bank first.
-        SwingUtilities.invokeLater(
-            () -> {
-              if (active && panel != null) panel.setOff();
-            });
-      }
-    }
-    // An item used on the patch or an NPC (seed, sapling, compost, herbs on the leprechaun).
+    progress.travelClicked(e, step, option, target);
     if (e.getMenuAction() == MenuAction.WIDGET_TARGET_ON_GAME_OBJECT
-        || e.getMenuAction() == MenuAction.WIDGET_TARGET_ON_NPC) {
-      usedOnTick = client.getTickCount();
-      usedOnStep = step.patchId + step.phase;
-      Widget held = client.getSelectedWidget();
-      usedItem = held == null || held.getItemId() <= 0 ? -1 : held.getItemId();
-      debugLog("used item " + usedItem + " on step " + usedOnStep);
-    }
+        || e.getMenuAction() == MenuAction.WIDGET_TARGET_ON_NPC) targets.itemUsed(step);
     // Checking a tree at another route patch moves the guide there (you've skipped ahead).
-    if (option.equals("check-health")) patchAction("Check health", null);
-    if (target.contains("resurrect crops")) {
-      resurrectCastOn = step.patchId;
-      resurrectTried.add(step.patchId);
-      event("cast resurrect: " + step.patchId);
-    }
-    if (!step.patchId.equals(railingPatch)) {
-      railingPatch = step.patchId;
-      railingDone = false;
-      mushtreeUsed = false;
-    }
-    if (Text.removeTags(e.getMenuTarget()).toLowerCase(Locale.ROOT).contains("mushtree"))
-      mushtreeUsed = true;
-    if (Text.removeTags(e.getMenuOption()).equalsIgnoreCase("squeeze-through")
-        && Text.removeTags(e.getMenuTarget()).toLowerCase(Locale.ROOT).contains("railing"))
-      railingDone = true;
-  }
-
-  /** What to click for a substep: the patch, its gardener or the nearby tool leprechaun. */
-  private Object target(
-      Guidance step, String phase, NPC gardener, TileObject patch, NPC leprechaun) {
-    if (phase.equals("Travel")) return null;
-    if (phase.startsWith("Note")) return leprechaun;
-    if (!step.kind.equals("herb")
-        && (phase.equals("Protect")
-            || phase.equals("Clear") && GARDENER_REMOVAL.contains(step.kind) && !deadPatch))
-      return gardener;
-    return patch;
+    if (option.equals("check-health")) patchEvents.patchAction("Check health", null);
+    if (target.contains("resurrect crops")) progress.resurrectCast(step);
+    targets.routeClicked(step, option, target);
   }
 }

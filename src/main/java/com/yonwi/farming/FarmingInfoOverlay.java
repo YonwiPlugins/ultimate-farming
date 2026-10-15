@@ -32,21 +32,21 @@ final class FarmingInfoOverlay extends OverlayPanel {
     Guidance step = plugin.guide();
     if (!config.infoBox() || client.getGameState() != GameState.LOGGED_IN) return null;
     panelComponent.getChildren().clear();
-    if (plugin.bankUnknown()) {
+    if (plugin.account().bankUnknown()) {
       // Until the bank has been seen, the route may be built on guessed unlocks.
       title("Ultimate Farming");
       wrap("Open your bank once so your teleports and unlocks can be worked out.", null);
       return super.render(g);
     }
-    List<String> withdraw = plugin.missingItems();
+    List<String> withdraw = plugin.kit().missing();
     if (step == null && !withdraw.isEmpty()) {
       // Bank first: list what to withdraw instead of the first teleport.
       title("Bank first");
       for (String item : withdraw) wrap("• " + item, WARN);
       // How to switch spellbook, step by step.
-      String how = plugin.switchHint();
+      String how = plugin.spellbook().hint();
       if (how != null) wrap(how, FarmingInventoryOverlay.TARGET);
-      String pouch = plugin.pouchHint();
+      String pouch = plugin.kit().pouchHint();
       if (pouch != null) wrap(pouch, FarmingInventoryOverlay.TARGET);
       return super.render(g);
     }
@@ -67,16 +67,16 @@ final class FarmingInfoOverlay extends OverlayPanel {
       Color c =
           i < step.phaseIndex ? DONE : i == step.phaseIndex ? FarmingInventoryOverlay.TARGET : null;
       String label =
-          plugin.deadPatch() && step.phases.get(i).equals("Harvest") && step.kind.equals("herb")
-              ? plugin.resurrectNow() ? "Cast Resurrect Crops on the dead herbs" : "Clear the dead herbs"
-              : plugin.deadPatch() && step.phases.get(i).equals("Clear")
+          plugin.patch().dead() && step.phases.get(i).equals("Harvest") && step.kind.equals("herb")
+              ? plugin.progress().resurrectNow() ? "Cast Resurrect Crops on the dead herbs" : "Clear the dead herbs"
+              : plugin.patch().dead() && step.phases.get(i).equals("Clear")
                   ? "Clear the dead tree yourself (spade)"
                   : step.labels.get(i);
       wrap((i + 1) + ". " + label, c);
     }
-    if (plugin.openSackNow())
+    if (plugin.harvest().openSackNow())
       wrap("Open your herb sack first, so the herbs go in it", FarmingInventoryOverlay.TARGET);
-    String note = plugin.noteAdvice();
+    String note = plugin.noting().advice();
     if (note != null) wrap(note, WARN);
     return super.render(g);
   }

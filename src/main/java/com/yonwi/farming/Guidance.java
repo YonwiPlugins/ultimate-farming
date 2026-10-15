@@ -152,7 +152,7 @@ final class Guidance {
             ? "Pick the " + crop.fruit.toLowerCase(Locale.ROOT).replace("grimy ", "")
             : kind.equals("celastrus") ? "Chop Celastrus bark" : "Pick 6 " + crop.fruit.toLowerCase(Locale.ROOT);
       case "Clear":
-        return FarmingPlugin.GARDENER_REMOVAL.contains(kind)
+        return Targets.GARDENER_REMOVAL.contains(kind)
             ? "Pay the gardener to remove the tree"
             : kind.equals("celastrus")
                 ? "Chop the tree down, then dig up the stump"

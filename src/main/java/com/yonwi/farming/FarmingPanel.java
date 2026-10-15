@@ -152,7 +152,7 @@ final class FarmingPanel extends PluginPanel {
     setBackground(BG);
     setBorder(new EmptyBorder(8, 6, 8, 6));
     loadState();
-    Image leaf = FarmingPlugin.leafIcon().getScaledInstance(26, 26, Image.SCALE_SMOOTH);
+    Image leaf = Icons.leaf().getScaledInstance(26, 26, Image.SCALE_SMOOTH);
     JPanel hero = Style.hero("Ultimate Farming", yield, new ImageIcon(leaf), null);
     hero.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
     body.add(hero);

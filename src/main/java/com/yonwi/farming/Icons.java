@@ -203,4 +203,27 @@ final class Icons {
     g.dispose();
     return new ImageIcon(img);
   }
+
+  /** A green leaf filling the whole 16px sidebar slot, corner to corner. */
+  static BufferedImage leaf() {
+    BufferedImage icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+    Graphics2D g = icon.createGraphics();
+    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+    g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+    Path2D leaf = new Path2D.Double();
+    leaf.moveTo(1.5, 14.5);
+    leaf.curveTo(0.5, 6, 6, 0.5, 15.5, 0.5);
+    leaf.curveTo(15.5, 10, 10, 15.5, 1.5, 14.5);
+    leaf.closePath();
+    g.setPaint(new GradientPaint(2, 14, new Color(62, 132, 58), 14, 2, new Color(152, 214, 104)));
+    g.fill(leaf);
+    g.setColor(new Color(36, 84, 38));
+    g.setStroke(new BasicStroke(0.9f));
+    g.draw(leaf);
+    g.setColor(new Color(214, 240, 170, 220));
+    g.setStroke(new BasicStroke(1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+    g.draw(new QuadCurve2D.Double(0.5, 15.5, 7, 9.5, 13.5, 2.5));
+    g.dispose();
+    return icon;
+  }
 }

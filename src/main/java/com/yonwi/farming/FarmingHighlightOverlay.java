@@ -35,40 +35,40 @@ final class FarmingHighlightOverlay extends Overlay {
     Guidance step = plugin.guide();
     // Before a run: the house altar to switch spellbook on.
     if (config.highlight() && step == null && client.getGameState() == GameState.LOGGED_IN)
-      for (TileObject altar : plugin.switchObjects()) draw(g, altar, FarmingInventoryOverlay.TARGET);
+      for (TileObject altar : plugin.spellbook().objects()) draw(g, altar, FarmingInventoryOverlay.TARGET);
     if (!config.highlight() || step == null || client.getGameState() != GameState.LOGGED_IN)
       return null;
     drawPath(g);
     // A patch made of several tiles (the Farming Guild redwood) is one square round all of it.
     int[] area = TargetData.PATCH_AREAS.get(step.patchId);
-    drawAll(g, plugin.nextObjects(), area, FarmingInventoryOverlay.NEXT);
-    for (NPC npc : plugin.nextNpcs())
+    drawAll(g, plugin.targets().nextObjects(), area, FarmingInventoryOverlay.NEXT);
+    for (NPC npc : plugin.targets().nextNpcs())
       FarmingInventoryOverlay.mark(g, npc.getConvexHull(), FarmingInventoryOverlay.NEXT);
     // Once the seed or compost is selected, the patch takes the item's colour.
     // Two clicks (use an item on the patch or NPC): the item is blue, so its target is orange
     // until the item is selected, then blue. One click (pick, check health, pay): blue.
     boolean useItem =
-        (step.phase.equals("Plant") && !plugin.needsRake())
+        (step.phase.equals("Plant") && !plugin.patch().needsRake())
             || step.phase.equals("Compost")
             || step.phase.startsWith("Note")
-            || plugin.noteAdvice() != null
+            || plugin.noting().advice() != null
             // Herb sack shut: opening it comes first, so the patch is next.
-            || plugin.openSackNow()
+            || plugin.harvest().openSackNow()
             // Digging up a stump or bare tree: spade first.
-            || step.phase.equals("Clear") && !plugin.itemIds(step).isEmpty();
+            || step.phase.equals("Clear") && !plugin.targets().itemIds(step).isEmpty();
     Color ink =
-        plugin.selectedItem(plugin.itemIds(step))
+        plugin.targets().selectedItem(plugin.targets().itemIds(step))
             ? FarmingInventoryOverlay.ITEM
             : useItem ? FarmingInventoryOverlay.NEXT : FarmingInventoryOverlay.TARGET;
-    drawAll(g, plugin.highlightObjects(), area, ink);
+    drawAll(g, plugin.targets().objects(), area, ink);
     // On the fairy ring itself, show the code to dial.
-    String code = plugin.fairyCode();
+    String code = plugin.targets().fairyCode();
     if (code != null)
-      for (TileObject object : plugin.highlightObjects()) {
+      for (TileObject object : plugin.targets().objects()) {
         net.runelite.api.Point at = object.getCanvasTextLocation(g, code, 160);
         if (at != null) OverlayUtil.renderTextLocation(g, at, code, FarmingInventoryOverlay.ITEM);
       }
-    for (NPC npc : plugin.highlightNpcs())
+    for (NPC npc : plugin.targets().npcs())
       FarmingInventoryOverlay.mark(g, npc.getConvexHull(), ink);
     if (config.debug()) logHighlights(ink, area);
     return null;
@@ -106,16 +106,16 @@ final class FarmingHighlightOverlay extends Overlay {
   private void logHighlights(Color ink, int[] area) {
     List<String> parts = new ArrayList<>();
     String now = FarmingInventoryOverlay.colourName(ink), next = FarmingInventoryOverlay.colourName(FarmingInventoryOverlay.NEXT);
-    logObjects(parts, now, plugin.highlightObjects(), area);
-    for (NPC n : plugin.highlightNpcs()) parts.add(now + " " + n.getName() + " (" + n.getId() + ")");
-    logObjects(parts, next, plugin.nextObjects(), area);
-    for (NPC n : plugin.nextNpcs()) parts.add(next + " " + n.getName() + " (" + n.getId() + ")");
-    List<WorldPoint> path = plugin.path();
+    logObjects(parts, now, plugin.targets().objects(), area);
+    for (NPC n : plugin.targets().npcs()) parts.add(now + " " + n.getName() + " (" + n.getId() + ")");
+    logObjects(parts, next, plugin.targets().nextObjects(), area);
+    for (NPC n : plugin.targets().nextNpcs()) parts.add(next + " " + n.getName() + " (" + n.getId() + ")");
+    List<WorldPoint> path = plugin.route().path();
     if (!path.isEmpty()) {
       WorldPoint end = path.get(path.size() - 1);
       parts.add("path " + path.size() + " tiles to " + end.getX() + "," + end.getY());
     }
-    plugin.noteHighlights("world", String.join(" · ", parts));
+    plugin.debug().noteHighlights("world", String.join(" · ", parts));
   }
 
   /** Debug: each object, or the tiles of a patch made of several as one square. */
@@ -142,7 +142,7 @@ final class FarmingHighlightOverlay extends Overlay {
    * area's walls and fences; it extends as you walk when the patch is further away.
    */
   private void drawPath(Graphics2D g) {
-    List<WorldPoint> path = plugin.path();
+    List<WorldPoint> path = plugin.route().path();
     Player player = client.getLocalPlayer();
     if (path.isEmpty() || player == null) return;
     WorldView view = client.getTopLevelWorldView();

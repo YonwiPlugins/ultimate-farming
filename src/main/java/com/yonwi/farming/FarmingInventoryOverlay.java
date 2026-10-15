@@ -110,7 +110,7 @@ final class FarmingInventoryOverlay extends Overlay {
         StringBuilder line = new StringBuilder();
         for (Map.Entry<String, Set<String>> e : byColour.entrySet())
           line.append(line.length() > 0 ? " · " : "").append(e.getKey()).append(' ').append(e.getValue());
-        plugin.noteHighlights("interface", line.toString());
+        plugin.debug().noteHighlights("interface", line.toString());
         recording = null;
       }
     }
@@ -150,17 +150,17 @@ final class FarmingInventoryOverlay extends Overlay {
 
   private Dimension renderMarks(Graphics2D g) {
     Guidance step = plugin.guide();
-    if (client.getGameState() == GameState.LOGGED_IN && plugin.kitFilterOpen()) markBankCounts(g);
+    if (client.getGameState() == GameState.LOGGED_IN && plugin.bankButton().filterOpen()) markBankCounts(g);
     // Spellbook switched: the magic cape goes back in the bank.
     if (config.highlight()
         && step == null
-        && plugin.missingItems().contains(FarmingPanel.DEPOSIT_CAPE)) {
-      Set<Integer> cape = FarmingPlugin.itemIds(Collections.singletonList("Magic cape"));
+        && plugin.kit().missing().contains(FarmingPanel.DEPOSIT_CAPE)) {
+      Set<Integer> cape = FarmingData.itemIds("Magic cape");
       for (Widget item : visibleChildren(InterfaceID.Bankside.ITEMS))
         if (cape.contains(item.getItemId())) mark(g, item, ITEM);
     }
     if (config.highlight() && step == null && client.getGameState() == GameState.LOGGED_IN) {
-      Set<Integer> shortRunes = plugin.pouchShortfall();
+      Set<Integer> shortRunes = plugin.kit().pouchShortfall();
       Widget bankWindow = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
       if (!shortRunes.isEmpty() && bankWindow != null && !bankWindow.isHidden()) {
         markPouchSetup(g, shortRunes);
@@ -170,40 +170,40 @@ final class FarmingInventoryOverlay extends Overlay {
     if (config.highlight()
         && step == null
         && client.getGameState() == GameState.LOGGED_IN
-        && plugin.switchRoute() != null) {
+        && plugin.spellbook().route() != null) {
       markSpellbookSwitch(g);
       return null;
     }
     if (!config.highlight() || step == null || client.getGameState() != GameState.LOGGED_IN)
       return null;
     // Dead herbs and Resurrect Crops on: the spell first, then the patch (once it's selected).
-    if (plugin.resurrectNow()) {
+    if (plugin.progress().resurrectNow()) {
       if (client.isWidgetSelected()) return null;
       int tab = client.getVarcIntValue(VarClientID.TOPLEVEL_PANEL);
       if (tab != MAGIC_TAB) mark(g, stone(2));
       else mark(g, client.getWidget(InterfaceID.MagicSpellbook.RESURRECT_CROPS));
       return null;
     }
-    Set<Integer> relevant = plugin.itemIds(step);
+    Set<Integer> relevant = plugin.targets().itemIds(step);
 
     int open = client.getVarcIntValue(VarClientID.TOPLEVEL_PANEL);
     // Next substep's items in orange, when the inventory is already showing.
     // On the patch's last step, "next" is the next patch's teleport.
     boolean nextIsTeleport = step.nextPhase == null;
     Set<Integer> next =
-        plugin.usableIds(nextIsTeleport ? step.nextTravelItems : step.nextItems);
+        plugin.targets().usableIds(nextIsTeleport ? step.nextTravelItems : step.nextItems);
     next.removeAll(relevant);
     // Already-worn equipment (secateurs, a staff) isn't something to click: leave it alone.
     if (!nextIsTeleport) next.removeAll(wornIds());
     // Secateurs only light up once picking is the current step (and they aren't worn).
     if (!nextIsTeleport)
-      next.removeAll(FarmingPlugin.itemIds(Collections.singletonList("Magic secateurs")));
+      next.removeAll(FarmingData.itemIds("Magic secateurs"));
     // Noting comes first: don't show what's after it yet (e.g. the next teleport).
     // (The next patch's teleport stays orange, so it's ready once you've noted.)
-    if (plugin.noteAdvice() != null && !nextIsTeleport) next.clear();
+    if (plugin.noting().advice() != null && !nextIsTeleport) next.clear();
     // Picking herbs that will likely fill the inventory: the unnoted herbs are next, not the seed.
-    boolean noteSoon = plugin.noteSoon();
-    if (noteSoon) next = new HashSet<>(plugin.noteItems());
+    boolean noteSoon = plugin.noting().soon();
+    if (noteSoon) next = new HashSet<>(plugin.noting().produce());
     if (open == INVENTORY_TAB && !next.isEmpty())
       markInventory(g, next, NEXT, noteSoon || !nextIsTeleport && step.nextPhase.startsWith("Note"));
     // The next teleport is worn (e.g. a ring or cape): show its tab in orange, or the item itself
@@ -213,27 +213,27 @@ final class FarmingInventoryOverlay extends Overlay {
       else if (open == INVENTORY_TAB) mark(g, stone(1), NEXT);
     }
     // Noting advised: the unnoted grimy herbs are what to use on the leprechaun.
-    if (plugin.noteAdvice() != null) {
+    if (plugin.noting().advice() != null) {
       if (open != INVENTORY_TAB) mark(g, stone(0));
-      else markInventory(g, plugin.noteItems(), ITEM, true);
+      else markInventory(g, plugin.noting().produce(), ITEM, true);
       return null;
     }
     // Herb sack carried shut: open it before picking, so the herbs go in it.
-    if (plugin.openSackNow()) {
+    if (plugin.harvest().openSackNow()) {
       if (open != INVENTORY_TAB) mark(g, stone(0));
-      else markInventory(g, FarmingPlugin.shutHerbSacks(), ITEM, true);
+      else markInventory(g, HarvestTracker.shutHerbSacks(), ITEM, true);
       return null;
     }
     // Paying the gardener to remove the tree: "Yes." in his "...chopped down?" choice.
     if (step.phase.equals("Clear")) markRemovalYes(g);
     // Once the seed or compost is selected, only the patch is left to click.
-    if (plugin.selectedItem(relevant)) return null;
+    if (plugin.targets().selectedItem(relevant)) return null;
     // Spirit tree, portal nexus and jewellery box menus: highlight this route's destination.
     // (Also back in the house partway through a stage that came through it.)
-    boolean houseReturn = plugin.houseReturn();
+    boolean houseReturn = plugin.progress().houseReturn();
     if (step.phase.equals("Travel") || houseReturn) markMenuChoice(g, step.travel);
     // A charter ship's map: the X for this route's port (its tooltip names it, e.g. Corsair Cove).
-    if (step.phase.equals("Travel") && !plugin.chartered()) markCharterPort(g, step.travel);
+    if (step.phase.equals("Travel") && !plugin.progress().chartered()) markCharterPort(g, step.travel);
     // The fairy ring's travel log, in the house too.
     if (step.phase.equals("Travel") || houseReturn) markFairyLog(g, step.travel);
     // Nothing in the inventory is for the house: the way back out is all that's lit up.
@@ -241,16 +241,16 @@ final class FarmingInventoryOverlay extends Overlay {
     // A teleport's menu or map is open: the destination in it is the one thing to click now.
     if (step.phase.equals("Travel") && destinationMenuOpen()) {
       markQuetzalDestination(g, step.travel);
-      plugin.setOverlayHint("destination menu open");
+      plugin.debug().setOverlayHint("destination menu open");
       return null;
     }
     // The teleport has just been clicked: it's happening, so stop pointing at the item.
-    if (step.phase.equals("Travel") && plugin.travelItemDone()) return null;
+    if (step.phase.equals("Travel") && plugin.progress().travelItemDone()) return null;
     // Inside the house (an instance) the teleport item is spent; the house portal comes next.
     if (step.phase.equals("Travel") && client.getTopLevelWorldView().isInstance()) return null;
     // A fairy ring staff comes first: equip it, then it stops being highlighted for good.
     if (step.phase.equals("Travel") && step.items.contains("Dramen/lunar staff if required")) {
-      Set<Integer> staff = FarmingPlugin.itemIds(Collections.singletonList("Dramen or lunar staff"));
+      Set<Integer> staff = FarmingData.itemIds("Dramen or lunar staff");
       relevant.removeAll(staff);
       if (!contains(InventoryID.WORN, staff) && contains(InventoryID.INV, staff)) {
         if (open != INVENTORY_TAB) mark(g, stone(0));
@@ -260,7 +260,7 @@ final class FarmingInventoryOverlay extends Overlay {
     }
     boolean inInventory = contains(InventoryID.INV, relevant);
     // What this overlay decided, for the debug box (e.g. to check the equipment tab hint).
-    plugin.setOverlayHint(
+    plugin.debug().setOverlayHint(
         relevant.isEmpty()
             ? "no item for this step"
             : inInventory
@@ -295,9 +295,9 @@ final class FarmingInventoryOverlay extends Overlay {
    * is outlined by the highlight overlay.
    */
   private void markSpellbookSwitch(Graphics2D g) {
-    String route = plugin.switchRoute();
+    String route = plugin.spellbook().route();
     int open = client.getVarcIntValue(VarClientID.TOPLEVEL_PANEL);
-    String word = plugin.spellbookWord();
+    String word = plugin.spellbook().word();
     // A dialogue asking which spellbook: highlight the one we want.
     Widget options = client.getWidget(InterfaceID.Chatmenu.OPTIONS);
     if (word != null && options != null && !options.isHidden()) {
@@ -305,7 +305,7 @@ final class FarmingInventoryOverlay extends Overlay {
       return;
     }
     if ("cape".equals(route)) {
-      Set<Integer> cape = FarmingPlugin.itemIds(Collections.singletonList("Magic cape"));
+      Set<Integer> cape = FarmingData.itemIds("Magic cape");
       if (contains(InventoryID.INV, cape)) {
         if (open != INVENTORY_TAB) mark(g, stone(0));
         else markInventory(g, cape, ITEM, false);
@@ -315,7 +315,7 @@ final class FarmingInventoryOverlay extends Overlay {
       }
     } else if ("house".equals(route)) {
       Set<Integer> home =
-          FarmingPlugin.itemIds(java.util.Arrays.asList("Construction cape", "House teleport"));
+          FarmingData.itemIds(Arrays.asList("Construction cape", "House teleport"));
       if (contains(InventoryID.INV, home)) {
         if (open != INVENTORY_TAB) mark(g, stone(0));
         else markInventory(g, home, ITEM, false);
@@ -349,13 +349,13 @@ final class FarmingInventoryOverlay extends Overlay {
     // The pouch can only be configured at the bank.
     Widget bank = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
     if (bank == null || bank.isHidden()) return;
-    Set<Integer> needed = plugin.runesNeeded();
-    Set<Integer> pouch = FarmingPlugin.itemIds(Collections.singletonList("Rune pouch"));
+    Set<Integer> needed = plugin.kit().runesNeeded();
+    Set<Integer> pouch = FarmingData.itemIds("Rune pouch");
     Widget panel = client.getWidget(InterfaceID.Bankside.RUNEPOUCH_CONTAINER);
     if (panel != null && !panel.isHidden()) {
       // The loadout with the most of the run's runes (extras don't matter), as long as it has
       // all of them, or as many as the pouch holds (3, or 4 in a divine pouch).
-      int enough = Math.min(plugin.pouchKinds(), needed.size());
+      int enough = Math.min(plugin.kit().pouchKinds(), needed.size());
       Widget best = null;
       int bestOverlap = 0;
       for (int[] loadout : LOADOUTS) {
@@ -371,11 +371,11 @@ final class FarmingInventoryOverlay extends Overlay {
       }
       if (best != null && bestOverlap >= enough) {
         markVisible(g, best, ITEM);
-        plugin.setPouchHint(null);
+        plugin.kit().setPouchHint(null);
       } else {
         for (Widget item : visibleChildren(InterfaceID.Bankside.ITEMS))
           if (pouch.contains(item.getItemId())) mark(g, item, ITEM);
-        plugin.setPouchHint("No saved loadout has this run's runes: put them in your pouch");
+        plugin.kit().setPouchHint("No saved loadout has this run's runes: put them in your pouch");
       }
       return;
     }
@@ -398,17 +398,17 @@ final class FarmingInventoryOverlay extends Overlay {
       }
       if (best != null && bestOverlap >= Math.min(3, needed.size())) {
         markVisible(g, best, ITEM);
-        plugin.setPouchHint(null);
+        plugin.kit().setPouchHint(null);
       } else {
         // No saved loadout fits: point at the runes to put in by hand.
         markBankItems(g, shortRunes);
-        plugin.setPouchHint("No saved loadout fits: put the highlighted runes in your pouch");
+        plugin.kit().setPouchHint("No saved loadout fits: put the highlighted runes in your pouch");
       }
       return;
     }
     // In the bank: the pouch in the bank-side inventory, with Configure as its left-click (even
     // when it's full: a loadout swaps the run's runes in).
-    plugin.setPouchHint("Configure your rune pouch for this run");
+    plugin.kit().setPouchHint("Configure your rune pouch for this run");
     for (Widget item : visibleChildren(InterfaceID.Bankside.ITEMS))
       if (pouch.contains(item.getItemId())) mark(g, item, ITEM);
   }
@@ -548,14 +548,14 @@ final class FarmingInventoryOverlay extends Overlay {
       if (item == null || item.isHidden() || item.getItemId() <= 0) continue;
       // What's still to withdraw (inventory, worn and pouch already counted), or a green tick
       // once you have enough.
-      int left = plugin.kitRemaining(item.getItemId());
+      int left = plugin.kit().remaining(item.getItemId());
       if (left < 0) continue;
       Rectangle b = item.getBounds();
       if (left == 0) {
         Icons.get("check").paintIcon(null, g, b.x + b.width - 14, b.y + b.height - 15);
         continue;
       }
-      if (plugin.kitCount(item.getItemId()) <= 1) continue; // a single item needs no number
+      if (plugin.kit().count(item.getItemId()) <= 1) continue; // a single item needs no number
       // Coins get no number: the sidebar says when you're short.
       if (item.getItemId() == ItemID.COINS) continue;
       String text = "×" + left;

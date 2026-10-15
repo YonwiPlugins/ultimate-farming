@@ -30,7 +30,7 @@ final class FarmingDebugOverlay extends OverlayPanel {
     panelComponent
         .getChildren()
         .add(TitleComponent.builder().text("UF debug").color(Color.YELLOW).build());
-    for (String line : plugin.debugLines())
+    for (String line : plugin.debugTools().lines())
       panelComponent.getChildren().add(LineComponent.builder().left(line).build());
     return super.render(g);
   }
