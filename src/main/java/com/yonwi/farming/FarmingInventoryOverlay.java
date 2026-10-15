@@ -218,6 +218,8 @@ final class FarmingInventoryOverlay extends Overlay {
       else markInventory(g, plugin.noteItems(), ITEM, true);
       return null;
     }
+    // Paying the gardener to remove the tree: "Yes." in his "...chopped down?" choice.
+    if (step.phase.equals("Clear")) markRemovalYes(g);
     // Once the seed or compost is selected, only the patch is left to click.
     if (plugin.selectedItem(relevant)) return null;
     // Spirit tree, portal nexus and jewellery box menus: highlight this route's destination.
@@ -577,9 +579,21 @@ final class FarmingInventoryOverlay extends Overlay {
         .substring(arrow + 1)
         .split("[,;]| then | → ")[0]
         .replaceFirst("(?i)^\\s*portal nexus:\\s*", "")
+        // "Taverley house portal": the Construction cape's list just says "Taverley".
+        .replace("house portal", "")
         .replace("portal", "")
         .trim()
         .toLowerCase(Locale.ROOT);
+  }
+
+  /** "Yes." in the gardener's "Pay 200 Coins to have your tree chopped down?" options only. */
+  private void markRemovalYes(Graphics2D g) {
+    Widget options = client.getWidget(InterfaceID.Chatmenu.OPTIONS);
+    if (options == null || options.isHidden() || options.getDynamicChildren() == null) return;
+    boolean removal = false;
+    for (Widget row : options.getDynamicChildren())
+      removal |= row != null && row.getText() != null &&row.getText().toLowerCase(Locale.ROOT).contains("chopped down?");
+    if (removal) markText(g, options, "yes.", 0);
   }
 
   private void markMenuChoice(Graphics2D g, String travel) {
@@ -588,6 +602,15 @@ final class FarmingInventoryOverlay extends Overlay {
     for (int id : CHOICE_MENUS) {
       Widget root = client.getWidget(id);
       if (root != null && !root.isHidden()) markText(g, root, place, 0);
+    }
+    // The Magic Mushtree's map: "mushtree to Mushroom Meadow".
+    java.util.regex.Matcher mush =
+        java.util.regex.Pattern.compile("mushtree to ([a-z' ]+?)(;|,| then|$)")
+            .matcher(travel.toLowerCase(Locale.ROOT));
+    Widget mushtrees = client.getWidget(InterfaceID.FossilMushtrees.UNIVERSE);
+    if (mush.find() && mushtrees != null && !mushtrees.isHidden()) {
+      markText(g, mushtrees, mush.group(1).trim(), 0);
+      markNamed(g, mushtrees, mush.group(1).trim(), 0);
     }
     // A teleport's chat options (e.g. a cape's destination list) name just the place.
     String word = place.split(" ")[0];

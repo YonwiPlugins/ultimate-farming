@@ -275,6 +275,25 @@ public class FarmingPlugin extends Plugin {
   static final Set<String> GARDENER_REMOVAL =
       new HashSet<>(Arrays.asList("tree", "fruit", "redwood", "hardwood"));
   private int grimyCount = -1, barkCount = -1;
+  /**
+   * Open herb sacks: picked grimy herbs go straight in, not into the inventory, up to 30 of each
+   * herb (OSRS wiki; assumed the same for the silk sack).
+   */
+  private static final Set<Integer> OPEN_HERB_SACKS =
+      new HashSet<>(
+          Arrays.asList(
+              net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK_OPEN,
+              net.runelite.api.gameval.ItemID.SLAYER_HERB_SACK_SILK_OPEN));
+  static final int HERB_SACK_SIZE = 30;
+  /**
+   * Herbs picked into the open sack since the bank was last open (where it's assumed emptied). It
+   * can't be read from the game, so it's counted: Farming XP with no new grimy herb in the bag.
+   */
+  private int sackHerbs;
+  private long farmingXp = -1;
+  /** This tick: Farming XP went up, grimy herbs in the inventory went up. */
+  private boolean xpGained, grimyGained;
+  private boolean wasPickable;
   /** Unnoted grimy herbs, whose count rising means a herb was just picked. */
   private static final Set<Integer> GRIMY = new HashSet<>();
 
@@ -353,6 +372,8 @@ public class FarmingPlugin extends Plugin {
               + step.phases.size() + ") next " + step.nextPhase);
       lines.add("travel multi-leg " + multiLeg(step.travel) + " · rake " + needsRake);
       if (player != null) lines.add("arrived " + arrived(step.patchId, player));
+      if (holdingUnnoted(OPEN_HERB_SACKS))
+        lines.add("herb sack " + sackHerbs + "/" + HERB_SACK_SIZE + " (counted since the bank)");
       if (step.phase.startsWith("Note"))
         lines.add("unnoted held " + holdingUnnoted(itemIds(step.items)));
     }
@@ -621,6 +642,7 @@ public class FarmingPlugin extends Plugin {
       if (e.getGameState() == GameState.LOGIN_SCREEN) {
         bank = null;
         grimyCount = -1;
+        farmingXp = -1;
       }
       sceneObjects.clear();
       sceneNpcs.clear();
@@ -654,7 +676,10 @@ public class FarmingPlugin extends Plugin {
 
   @Subscribe
   public void onStatChanged(StatChanged e) {
-    if (e.getSkill() == Skill.FARMING) refreshLevel();
+    if (e.getSkill() != Skill.FARMING) return;
+    if (farmingXp >= 0 && e.getXp() > farmingXp) xpGained = true;
+    farmingXp = e.getXp();
+    refreshLevel();
   }
 
   @Override
@@ -772,6 +797,7 @@ public class FarmingPlugin extends Plugin {
   @Subscribe
   public void onGameTick(GameTick event) {
     refreshHighlights();
+    countSackHerbs();
     watchGardenerDialog();
     checkProgress();
     if (config.debug()) {
@@ -785,6 +811,38 @@ public class FarmingPlugin extends Plugin {
     }
     refreshSpellbookSwitch();
     if (scanDue || ++ticks % 100 == 0) scanAccount();
+  }
+
+  /**
+   * A herb picked into an open herb sack never reaches the inventory, so it's spotted as Farming XP
+   * with no new grimy herb while the guided herb patch offers Pick (this tick or last, as the last
+   * herb empties it). It counts as picked, so the run timer starts and the herb is recorded. A herb
+   * reaching the inventory with the sack open means the sack is full.
+   */
+  private void countSackHerbs() {
+    boolean xp = xpGained, grimy = grimyGained;
+    xpGained = grimyGained = false;
+    boolean pickable = offers(patchObject, "pick"), was = wasPickable;
+    wasPickable = pickable;
+    Guidance step = guidance;
+    if (!xp
+        || !(pickable || was)
+        || step == null
+        || !step.kind.equals("herb")
+        || !holdingUnnoted(OPEN_HERB_SACKS)) return;
+    if (grimy) {
+      if (sackHerbs < HERB_SACK_SIZE) event("herb sack full");
+      sackHerbs = HERB_SACK_SIZE;
+      return;
+    }
+    if (sackHerbs < HERB_SACK_SIZE) sackHerbs++;
+    event("herb into sack: " + sackHerbs + "/" + HERB_SACK_SIZE);
+    herbPicked(1);
+  }
+
+  /** Room left in an open herb sack carried in the inventory (0 without one). */
+  private int sackRoom() {
+    return holdingUnnoted(OPEN_HERB_SACKS) ? Math.max(0, HERB_SACK_SIZE - sackHerbs) : 0;
   }
 
   /**
@@ -850,8 +908,14 @@ public class FarmingPlugin extends Plugin {
       // house route.
       if (teleported && fromStep && usedTransport) jumped = true;
       if (teleported) usedTransport = false;
-      if (teleported && fromStep && !multiLeg(step.travel) || arrived(step.patchId, player))
-        phaseDone(step);
+      // A walk has nothing to click first: the patch is the step straight away (it was orange,
+      // "next", the whole way). A guide's or boat's drop-off counts once it's in the patch's own
+      // map square (Nemus Retreat), not only within 10 tiles.
+      boolean walk = step.travel.toLowerCase(Locale.ROOT).startsWith("walk");
+      if (walk
+          || teleported && fromStep && !multiLeg(step.travel)
+          || teleported && inPatchArea(step.patchId, here)
+          || arrived(step.patchId, player)) phaseDone(step);
       return;
     }
     if (step.phase.startsWith("Note")) {
@@ -1653,6 +1717,8 @@ public class FarmingPlugin extends Plugin {
       for (Item item : e.getItemContainer().getItems())
         if (item.getId() > 0 && item.getQuantity() > 0)
           bank.add(itemManager.canonicalize(item.getId()));
+      // The herb sack is emptied at the bank between runs (assumed; corrected once it's seen full).
+      sackHerbs = 0;
       StringBuilder b = new StringBuilder();
       for (int id : bank) b.append(b.length() == 0 ? "" : ",").append(id);
       configManager.setRSProfileConfiguration(FarmingPanel.GROUP, "bank", b.toString());
@@ -1664,6 +1730,7 @@ public class FarmingPlugin extends Plugin {
       for (Item item : e.getItemContainer().getItems())
         if (GRIMY.contains(item.getId())) count += item.getQuantity();
       if (grimyCount >= 0 && count > grimyCount) {
+        grimyGained = true;
         event("herb picked: " + grimyCount + " -> " + count);
         herbPicked(count - grimyCount);
       }
@@ -2102,11 +2169,14 @@ public class FarmingPlugin extends Plugin {
     }
     // Noting herbs: the leprechaun is the destination, not the patch.
     boolean noting = noteAdvice != null || step.phase.startsWith("Note");
-    // At a patch you've started on, or noting: no line (the highlights say what to click). The
-    // line to the patch comes back while you're outside its area.
-    boolean here = !step.phase.equals("Travel") && inPatchArea(step.patchId, from);
-    // Noting advised but the leprechaun isn't in view yet: head for where he stands.
+    // At a patch you've started on, or noting: no line (the highlights say what to click). "At"
+    // is within 10 tiles, not its map square: clicking the patch from further off (Kastori, 33
+    // tiles) hid the line for the rest of the walk.
     WorldPoint patchAt = TargetData.PATCH_POINTS.get(step.patchId);
+    boolean here =
+        !step.phase.equals("Travel")
+            && (patchAt != null ? patchAt.distanceTo2D(from) <= 10 : inPatchArea(step.patchId, from));
+    // Noting advised but the leprechaun isn't in view yet: head for where he stands.
     WorldPoint lepSpot =
         noteAdvice != null && npcHighlights.isEmpty() && patchAt != null
             ? TargetData.nearestLeprechaun(patchAt)
@@ -2143,6 +2213,12 @@ public class FarmingPlugin extends Plugin {
         && npcHighlights.isEmpty()
         && from.getPlane() == 0
         && GORGE_GUIDE.distanceTo(from) < 100) to = GORGE_GUIDE;
+    // Tree Gnome Village, Elkoy not in view yet: head for his spot, not round the maze.
+    if (step.phase.equals("Travel")
+        && routeText.contains("elkoy")
+        && npcHighlights.isEmpty()
+        && from.getPlane() == 0
+        && ELKOY.distanceTo(from) < 100) to = ELKOY;
     // The target's full size, so the route goes to its nearest side (trees are often 2×2+).
     int w = 1, h = 1;
     if (!npcHighlights.isEmpty() && to != null && to.equals(npcHighlights.get(0).getWorldLocation())) {
@@ -2280,6 +2356,9 @@ public class FarmingPlugin extends Plugin {
   /** Where the Mountain Guide stands in Quetzacalli Gorge (Shortest Path's transport data). */
   private static final WorldPoint GORGE_GUIDE = new WorldPoint(1486, 3232, 0);
 
+  /** Where Elkoy stands outside the Tree Gnome Village maze (Shortest Path's transport data). */
+  private static final WorldPoint ELKOY = new WorldPoint(2515, 3159, 0);
+
   private volatile String noteAdvice;
 
   /** Shown when herbs should be noted now, with the leprechaun and grimy herbs highlighted. */
@@ -2291,9 +2370,13 @@ public class FarmingPlugin extends Plugin {
   /** The patch whose leprechaun you've been told to note at on the way in, or null. */
   private String noteOnWayIn;
 
-  private static String noteOnWayInText(int free, Guidance step) {
-    return "Note your herbs on the way: " + free + " free slots, this patch gives about "
-        + step.herbsIfAlive;
+  private static String noteOnWayInText(String room, Guidance step) {
+    return "Note your herbs on the way: " + room + ", this patch gives about " + step.herbsIfAlive;
+  }
+
+  /** e.g. "5 free slots", or "5 free slots + 12 in the herb sack". */
+  private static String roomText(int free, int sackRoom) {
+    return free + " free slots" + (sackRoom > 0 ? " + " + sackRoom + " in the herb sack" : "");
   }
 
   private String noteAdvice(Guidance step, Player player, TileObject patch, NPC leprechaun) {
@@ -2310,6 +2393,8 @@ public class FarmingPlugin extends Plugin {
     int free = 28 - used;
     if (grimy == 0) return null;
     boolean herbs = step.kind.equals("herb");
+    // Herbs fill an open herb sack before the inventory, so its room counts too.
+    int sackRoom = herbs ? sackRoom() : 0, room = free + sackRoom;
     WorldPoint now = player.getWorldLocation();
     // Leaving a herb patch for another: if the next one's herbs won't fit with 2 to spare, note
     // at this patch's leprechaun first (e.g. Catherby before Troll Stronghold).
@@ -2319,10 +2404,10 @@ public class FarmingPlugin extends Plugin {
         && leprechaun != null
         && !client.getTopLevelWorldView().isInstance()
         && inPatchArea(step.prevPatchId, now)
-        && free < step.herbsIfAlive + 2
+        && room < step.herbsIfAlive + 2
         && noteHereShorter(step.prevPatchId, step.patchId, step.travel))
-      return "Note your herbs here: " + free + " free slots, the next patch gives about "
-          + step.herbsIfAlive;
+      return "Note your herbs here: " + roomText(free, sackRoom)
+          + ", the next patch gives about " + step.herbsIfAlive;
     boolean started = step.patchId.equals(pickingPatch);
     // On the way in, when this patch's herbs won't fit and the leprechaun comes before the patch
     // (e.g. Falador): note as you pass him. Once advised it stays until you've noted or started
@@ -2335,7 +2420,7 @@ public class FarmingPlugin extends Plugin {
             && !started
             // The same rule as noting before leaving: room for this patch's herbs if it's alive,
             // with 2 to spare.
-            && free < step.herbsIfAlive + 2
+            && room < step.herbsIfAlive + 2
             && at != null
             && at.getPlane() == here.getPlane()
             // In the patch's own area (RuneLite's farming regions for it), not just anywhere.
@@ -2346,10 +2431,10 @@ public class FarmingPlugin extends Plugin {
     WorldPoint lepAt =
         leprechaun != null ? leprechaun.getWorldLocation() : at == null ? null : TargetData.nearestLeprechaun(at);
     if (!approaching) noteOnWayIn = null;
-    else if (step.patchId.equals(noteOnWayIn)) return noteOnWayInText(free, step);
+    else if (step.patchId.equals(noteOnWayIn)) return noteOnWayInText(roomText(free, sackRoom), step);
     else if (lepAt != null && lepAt.distanceTo(here) < at.distanceTo(here)) {
       noteOnWayIn = step.patchId;
-      return noteOnWayInText(free, step);
+      return noteOnWayInText(roomText(free, sackRoom), step);
     }
     // Otherwise noting only happens when the inventory fills up while picking: pick until full,
     // note at that patch's leprechaun, then finish.
@@ -2369,7 +2454,7 @@ public class FarmingPlugin extends Plugin {
     // Herbs likely to fill the inventory before the patch is done: the herbs and the leprechaun
     // are next (orange), so noting is ready before it's full.
     int left = Math.max(1, step.herbsIfAlive - (step.patchId.equals(pickingPatch) ? pickedHere : 0));
-    noteSoon = herbs && harvesting && stillToPick && free > 0 && free < left;
+    noteSoon = herbs && harvesting && stillToPick && room > 0 && room < left;
     // Composting, the last step here, with a herb patch next: if you'll have to note before it
     // and this leprechaun is the shorter walk, the herbs and him are next, not the teleport (it
     // turns into "note here" once compost is done).
@@ -2378,10 +2463,11 @@ public class FarmingPlugin extends Plugin {
             && step.phase.equals("Compost")
             && "herb".equals(step.nextKind)
             && leprechaun != null
-            && free < step.nextHerbsIfAlive + 2
+            && room < step.nextHerbsIfAlive + 2
             && noteHereShorter(step.patchId, step.nextPatchId, step.nextTravel);
     // Full with more still to harvest (any crop): note at this patch's leprechaun, then finish.
-    if (harvesting && stillToPick && free == 0)
+    // Herbs still go into an open herb sack with room, however full the inventory is.
+    if (harvesting && stillToPick && room == 0)
       return "Inventory full: note your "
           + (herbs ? "herbs" : step.produce.toLowerCase(Locale.ROOT))
           + " at this leprechaun, then finish "
@@ -2666,6 +2752,13 @@ public class FarmingPlugin extends Plugin {
       charterCrew = all; // all of them are highlighted; the nearest leads the path
       if (crew != null) return crew;
     }
+    // Fossil Island: after the pendant, the Magic Mushtree by the House on the Hill takes you on
+    // to Mushroom Meadow. Once it's been used, the Meadow's own mushtree isn't lit up.
+    if (travel.contains("mushtree") && !house) {
+      if (mushtreeUsed) return null;
+      TileObject mushtree = nearestObject(player, 40, "magic mushtree");
+      if (mushtree != null) return mushtree;
+    }
     if (jumped && !travel.contains("elkoy")) return null;
     // Tree Gnome Village: squeeze through the loose railing, then follow Elkoy through the maze.
     if (travel.contains("elkoy") && !house) {
@@ -2759,6 +2852,9 @@ public class FarmingPlugin extends Plugin {
 
   /** Set once you squeeze through the Tree Gnome Village railing on this patch's trip. */
   private boolean railingDone;
+
+  /** Set once you've clicked a Magic Mushtree on this patch's trip (Fossil Island). */
+  private boolean mushtreeUsed;
 
   private String railingPatch;
 
@@ -2933,7 +3029,10 @@ public class FarmingPlugin extends Plugin {
     if (!step.patchId.equals(railingPatch)) {
       railingPatch = step.patchId;
       railingDone = false;
+      mushtreeUsed = false;
     }
+    if (Text.removeTags(e.getMenuTarget()).toLowerCase(Locale.ROOT).contains("mushtree"))
+      mushtreeUsed = true;
     if (Text.removeTags(e.getMenuOption()).equalsIgnoreCase("squeeze-through")
         && Text.removeTags(e.getMenuTarget()).toLowerCase(Locale.ROOT).contains("railing"))
       railingDone = true;

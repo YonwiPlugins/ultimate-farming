@@ -550,6 +550,9 @@ final class FarmingPanel extends PluginPanel {
         && session == null
         && settings.completed.isEmpty()
         && settings.progress.isEmpty()
+        // Under way (e.g. landed at the first patch, its ring now out of charges): no going back.
+        && guideIndex == 0
+        && phaseIndex == 0
         && !missing().isEmpty();
   }
 
@@ -2235,17 +2238,19 @@ final class FarmingPanel extends PluginPanel {
   }
 
   /**
-   * Between runs: when this route's crops will all be grown, using the planting times this plugin
-   * saw and RuneLite Time Tracking's growth rates. Null if nothing has been planted yet.
+   * Between runs: when this route's crops will all be grown. From what RuneLite's Time Tracking
+   * last saw at each patch, else the planting time this plugin saw (patches planted before either
+   * was watching have neither). Null if nothing is known.
    */
   private String idleMessage() {
     if (prepared || session != null) return null;
     long ready = 0;
     for (FarmingPlanner.Step step : route) {
+      Long at = TimeTrackingData.readyAt(config, step.patch.id);
       Long planted = settings.plantedAt.get(step.patch.id);
       Crop crop = settings.crop(step.patch.kind);
-      if (planted == null || crop == null) continue;
-      ready = Math.max(ready, FarmingData.readyAt(crop.name, planted));
+      if (at == null && planted != null && crop != null) at = FarmingData.readyAt(crop.name, planted);
+      if (at != null) ready = Math.max(ready, at);
     }
     if (ready == 0) return null;
     if (ready <= System.currentTimeMillis())
