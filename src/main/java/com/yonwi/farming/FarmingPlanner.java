@@ -2,6 +2,8 @@ package com.yonwi.farming;
 
 import java.util.*;
 import java.util.function.ToLongFunction;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class FarmingPlanner {
   static final class Choice {
@@ -73,10 +75,18 @@ final class FarmingPlanner {
 
   /** The three-letter fairy ring code in a travel line, or null. */
   static String fairyCode(String travel) {
-    java.util.regex.Matcher m =
-        java.util.regex.Pattern.compile("Fairy ring ([A-Z]{3})").matcher(travel);
-    return m.find() ? m.group(1) : null;
+    Matcher code = FAIRY_CODE.matcher(travel);
+    return code.find() ? code.group(1) : null;
   }
+
+  /** The port in a travel line's "charter to …", lower case, or null. */
+  static String charterPort(String travel) {
+    Matcher port = CHARTER_TO.matcher(travel.toLowerCase(Locale.ROOT));
+    return port.find() ? port.group(1).trim() : null;
+  }
+
+  private static final Pattern FAIRY_CODE = Pattern.compile("Fairy ring ([A-Z]{3})");
+  private static final Pattern CHARTER_TO = Pattern.compile("charter to ([a-z' ]+?)(;|,| then|$)");
 
   static void house(List<Choice> o, Settings s, String text, double cost) {
     poh(o, s, text, cost);

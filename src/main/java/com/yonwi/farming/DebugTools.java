@@ -7,8 +7,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -24,7 +22,6 @@ import net.runelite.client.util.Text;
 
 /** With the debug setting on: the debug box's lines, and extra detail for client.log. */
 final class DebugTools {
-  private static final Pattern CHARTER_TO = Pattern.compile("charter to ([a-z' ]+?)(;|,| then|$)");
   /** Charter ports, to find them on the charter map and list whatever the route. */
   private static final List<String> PORTS =
       Arrays.asList(
@@ -246,10 +243,8 @@ final class DebugTools {
     logInterfaces(roots);
     Guidance step = plugin.guide();
     List<String> words = new ArrayList<>(PORTS);
-    if (step != null) {
-      Matcher to = CHARTER_TO.matcher(step.travel.toLowerCase(Locale.ROOT));
-      if (to.find()) words.add(0, to.group(1).trim());
-    }
+    String port = step == null ? null : FarmingPlanner.charterPort(step.travel);
+    if (port != null) words.add(0, port);
     if (roots != null) for (Widget root : roots) logWidgets(root, words, 0);
     Player player = client.getLocalPlayer();
     if (player == null || client.getTickCount() % 5 != 0) return;

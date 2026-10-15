@@ -4,8 +4,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.Menu;
@@ -20,7 +18,6 @@ import net.runelite.client.util.Text;
  * are from RuneLite's Menu Entry Swapper.
  */
 final class MenuSwaps {
-  private static final Pattern CHARTER_TO = Pattern.compile("charter to ([a-z' ]+?)(;|,| then|$)");
   /** Plain teleport options, after one naming the destination. */
   private static final List<String> TELEPORT_OPTIONS =
       Arrays.asList(
@@ -160,13 +157,13 @@ final class MenuSwaps {
     // A charter ship (e.g. Catherby to Corsair Cove): the crew's "Charter-to <place>" when it's
     // already this destination (it remembers your last one), otherwise plain "Charter".
     if (travel.contains("charter")) {
-      Matcher to = CHARTER_TO.matcher(travel);
+      String port = FarmingPlanner.charterPort(travel);
       if (plugin.progress().chartered()) {
         // Off the ship, then on: the gangplank's Cross and the rowboat's Travel.
         wanted.add(new String[] {"gangplank", "cross"});
         wanted.add(new String[] {"rowboat", "travel"});
       } else {
-        if (to.find()) wanted.add(new String[] {"trader crew", "charter-to " + to.group(1).trim()});
+        if (port != null) wanted.add(new String[] {"trader crew", "charter-to " + port});
         wanted.add(new String[] {"trader crew", "charter"});
       }
     }
