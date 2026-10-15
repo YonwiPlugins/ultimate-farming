@@ -1,24 +1,38 @@
 package com.yonwi.farming;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import net.runelite.api.ObjectComposition;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.gameval.NpcID;
 
+/** Where patches, gardeners and tool leprechauns are, and how to recognise a patch. */
 final class TargetData {
+  /** Each herb patch's area: the map regions RuneLite's FarmingWorld lists for it. */
   static final Map<String, Set<Integer>> HERB_REGIONS = new HashMap<>();
+
+  private static void regions(String patchId, Integer... regionIds) {
+    HERB_REGIONS.put(patchId, new HashSet<>(Arrays.asList(regionIds)));
+  }
+
   static {
-HERB_REGIONS.put("herbtroll", new HashSet<>(Arrays.asList(11321)));
-HERB_REGIONS.put("herbweiss", new HashSet<>(Arrays.asList(11325)));
-HERB_REGIONS.put("herbharmony", new HashSet<>(Arrays.asList(15148)));
-HERB_REGIONS.put("herbardougne", new HashSet<>(Arrays.asList(10548)));
-HERB_REGIONS.put("herbhosidius", new HashSet<>(Arrays.asList(6967,6711)));
-HERB_REGIONS.put("herbphasmatys", new HashSet<>(Arrays.asList(14391,14390)));
-HERB_REGIONS.put("herbfalador", new HashSet<>(Arrays.asList(12083)));
-HERB_REGIONS.put("herbfortis", new HashSet<>(Arrays.asList(6192,6447,6448,6449,6191,6193)));
-HERB_REGIONS.put("herbcatherby", new HashSet<>(Arrays.asList(11062,11061,11318,11317)));
-HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,4921,4923,4665,4666,4667)));
-}
+    regions("herbtroll", 11321);
+    regions("herbweiss", 11325);
+    regions("herbharmony", 15148);
+    regions("herbardougne", 10548);
+    regions("herbhosidius", 6967, 6711);
+    regions("herbphasmatys", 14391, 14390);
+    regions("herbfalador", 12083);
+    regions("herbfortis", 6192, 6447, 6448, 6449, 6191, 6193);
+    regions("herbcatherby", 11062, 11061, 11318, 11317);
+    regions("herbguild", 4922, 5177, 5178, 5179, 4921, 4923, 4665, 4666, 4667);
+  }
 
   /**
    * Where each herb patch object sits. A grown herb's name isn't "herb", so the patch is found by
@@ -57,7 +71,7 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
       {3008, 3370}, {1593, 3099}, {1683, 2971}, {1364, 2943}, {1369, 3318}, {1448, 3355},
       {1352, 3058}, {1354, 3030}, {2826, 3685}
     };
-    for (int[] t : tiles) LEPRECHAUNS.add(new WorldPoint(t[0], t[1], 0));
+    for (int[] tile : tiles) LEPRECHAUNS.add(new WorldPoint(tile[0], tile[1], 0));
   }
 
   /**
@@ -74,10 +88,10 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
   static WorldPoint nearestLeprechaun(WorldPoint at) {
     WorldPoint best = null;
     int closest = 30;
-    for (WorldPoint l : LEPRECHAUNS)
-      if (l.getPlane() == at.getPlane() && l.distanceTo(at) < closest) {
-        best = l;
-        closest = l.distanceTo(at);
+    for (WorldPoint spot : LEPRECHAUNS)
+      if (spot.getPlane() == at.getPlane() && spot.distanceTo(at) < closest) {
+        best = spot;
+        closest = spot.distanceTo(at);
       }
     return best;
   }
@@ -145,28 +159,29 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
     GARDENERS.put("anglers", NpcID.FARMING_GARDENER_HARDWOOD_TREE_5);
   }
 
+  /** Whether an object (as it looks now) is a farming patch or crop of this kind. */
   static boolean patchLike(ObjectComposition object, String kind) {
     String name = object.getName();
     if (name == null) return false;
-    String n = name.toLowerCase(Locale.ROOT);
-    if(kind.equals("herb")) return n.contains("herb");
+    String lower = name.toLowerCase(Locale.ROOT);
+    if (kind.equals("herb")) return lower.contains("herb");
     boolean farming = false;
     for (String action : object.getActions())
       if (action != null
           && Arrays.asList("check-health", "inspect", "guide", "clear", "rake")
               .contains(action.toLowerCase(Locale.ROOT))) farming = true;
-    if (!farming || !n.contains("tree") && !n.contains("patch") && !n.contains("stump"))
+    if (!farming || !lower.contains("tree") && !lower.contains("patch") && !lower.contains("stump"))
       return false;
     switch (kind) {
       case "calquat":
-        return n.contains("calquat");
+        return lower.contains("calquat");
       case "celastrus":
-        return n.contains("celastrus");
+        return lower.contains("celastrus");
       case "redwood":
-        return n.contains("redwood");
+        return lower.contains("redwood");
       case "fruit":
         return contains(
-            n,
+            lower,
             "fruit",
             "apple",
             "banana",
@@ -178,11 +193,11 @@ HERB_REGIONS.put("herbguild", new HashSet<>(Arrays.asList(4922,5177,5178,5179,49
             "dragonfruit");
       case "hardwood":
         // Anglers' Retreat's empty patch is just "Tree patch".
-        return n.equals("tree patch")
-            || contains(n, "hardwood", "teak", "mahogany", "camphor", "ironwood", "rosewood");
+        return lower.equals("tree patch")
+            || contains(lower, "hardwood", "teak", "mahogany", "camphor", "ironwood", "rosewood");
       default:
         return !contains(
-            n,
+            lower,
             "fruit",
             "calquat",
             "celastrus",

@@ -1,11 +1,16 @@
 package com.yonwi.farming;
 
-import java.awt.*;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics2D;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
-import net.runelite.client.ui.overlay.*;
-import net.runelite.client.ui.overlay.components.*;
+import net.runelite.client.ui.overlay.OverlayPanel;
+import net.runelite.client.ui.overlay.OverlayPosition;
+import net.runelite.client.ui.overlay.OverlayPriority;
+import net.runelite.client.ui.overlay.components.LineComponent;
+import net.runelite.client.ui.overlay.components.TitleComponent;
 
 /** Test aid: what the plugin currently believes, so a run can be reported line by line. */
 final class FarmingDebugOverlay extends OverlayPanel {

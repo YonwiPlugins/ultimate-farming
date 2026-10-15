@@ -86,10 +86,10 @@ final class FarmingPlanner {
     return TravelChoices.forPatch(patch, settings);
   }
 
-  /** Travel from patch a to b: a walk or boat between them if quicker, else b's own quickest. */
-  private static Choice edge(List<Patch> patches, List<Choice> direct, int a, int b, Settings settings) {
-    Choice between = TravelChoices.between(patches.get(a), patches.get(b), settings);
-    return between != null && between.cost < direct.get(b).cost ? between : direct.get(b);
+  /** Travel between two patches: a walk or boat between them if quicker, else the second's own quickest. */
+  private static Choice edge(List<Patch> patches, List<Choice> direct, int from, int to, Settings settings) {
+    Choice between = TravelChoices.between(patches.get(from), patches.get(to), settings);
+    return between != null && between.cost < direct.get(to).cost ? between : direct.get(to);
   }
 
   static List<Step> plan(Settings settings) {
@@ -169,19 +169,19 @@ final class FarmingPlanner {
   /** The group's patches in their quickest order (every order tried, as a bitmask shortest path). */
   private static List<Integer> quickestOrder(
       List<Integer> group, List<Patch> patches, List<Choice> direct, Settings settings) {
-    int n = group.size();
-    int full = (1 << n) - 1;
-    double[][] cost = new double[full + 1][n];
-    int[][] parent = new int[full + 1][n];
+    int size = group.size();
+    int full = (1 << size) - 1;
+    double[][] cost = new double[full + 1][size];
+    int[][] parent = new int[full + 1][size];
     for (int visited = 0; visited <= full; visited++) {
       Arrays.fill(cost[visited], Double.POSITIVE_INFINITY);
       Arrays.fill(parent[visited], -1);
     }
-    for (int j = 0; j < n; j++) cost[1 << j][j] = direct.get(group.get(j)).cost;
+    for (int j = 0; j < size; j++) cost[1 << j][j] = direct.get(group.get(j)).cost;
     for (int visited = 1; visited <= full; visited++)
-      for (int i = 0; i < n; i++)
+      for (int i = 0; i < size; i++)
         if ((visited & (1 << i)) != 0)
-          for (int j = 0; j < n; j++)
+          for (int j = 0; j < size; j++)
             if ((visited & (1 << j)) == 0) {
               int next = visited | (1 << j);
               double total = cost[visited][i] + edge(patches, direct, group.get(i), group.get(j), settings).cost;
@@ -191,7 +191,7 @@ final class FarmingPlanner {
               }
             }
     int end = 0;
-    for (int i = 1; i < n; i++) if (cost[full][i] < cost[full][end]) end = i;
+    for (int i = 1; i < size; i++) if (cost[full][i] < cost[full][end]) end = i;
     int visited = full;
     List<Integer> order = new ArrayList<>();
     while (end >= 0) {

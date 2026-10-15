@@ -1,6 +1,9 @@
 package com.yonwi.farming;
 
-import java.awt.*;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics2D;
 import java.util.ArrayList;
 import java.util.List;
 import javax.inject.Inject;
@@ -12,8 +15,13 @@ import net.runelite.api.Player;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.ObjectComposition;
+import net.runelite.api.Point;
 import net.runelite.api.TileObject;
-import net.runelite.client.ui.overlay.*;
+import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.OverlayLayer;
+import net.runelite.client.ui.overlay.OverlayPosition;
+import net.runelite.client.ui.overlay.OverlayUtil;
 
 /** Current substep's patch or NPC in blue; the next substep's in orange so it's ready to click. */
 final class FarmingHighlightOverlay extends Overlay {
@@ -65,7 +73,7 @@ final class FarmingHighlightOverlay extends Overlay {
     String code = plugin.targets().fairyCode();
     if (code != null)
       for (TileObject object : plugin.targets().objects()) {
-        net.runelite.api.Point at = object.getCanvasTextLocation(g, code, 160);
+        Point at = object.getCanvasTextLocation(g, code, 160);
         if (at != null) OverlayUtil.renderTextLocation(g, at, code, FarmingInventoryOverlay.ITEM);
       }
     for (NPC npc : plugin.targets().npcs())
@@ -85,7 +93,8 @@ final class FarmingHighlightOverlay extends Overlay {
     WorldView view = client.getTopLevelWorldView();
     LocalPoint sw = LocalPoint.fromWorld(view, new WorldPoint(area[0], area[1], tile.getPlane()));
     if (sw == null) return;
-    int sizeX = area[2] - area[0] + 1, sizeY = area[3] - area[1] + 1;
+    int sizeX = area[2] - area[0] + 1;
+    int sizeY = area[3] - area[1] + 1;
     LocalPoint centre =
         new LocalPoint(
             sw.getX() + (sizeX - 1) * Perspective.LOCAL_HALF_TILE_SIZE,
@@ -105,11 +114,12 @@ final class FarmingHighlightOverlay extends Overlay {
   /** Debug: what's lit in the game world and in which colour, logged when it changes. */
   private void logHighlights(Color ink, int[] area) {
     List<String> parts = new ArrayList<>();
-    String now = FarmingInventoryOverlay.colourName(ink), next = FarmingInventoryOverlay.colourName(FarmingInventoryOverlay.NEXT);
+    String now = FarmingInventoryOverlay.colourName(ink);
+    String next = FarmingInventoryOverlay.colourName(FarmingInventoryOverlay.NEXT);
     logObjects(parts, now, plugin.targets().objects(), area);
-    for (NPC n : plugin.targets().npcs()) parts.add(now + " " + n.getName() + " (" + n.getId() + ")");
+    for (NPC npc : plugin.targets().npcs()) parts.add(now + " " + npc.getName() + " (" + npc.getId() + ")");
     logObjects(parts, next, plugin.targets().nextObjects(), area);
-    for (NPC n : plugin.targets().nextNpcs()) parts.add(next + " " + n.getName() + " (" + n.getId() + ")");
+    for (NPC npc : plugin.targets().nextNpcs()) parts.add(next + " " + npc.getName() + " (" + npc.getId() + ")");
     List<WorldPoint> path = plugin.route().path();
     if (!path.isEmpty()) {
       WorldPoint end = path.get(path.size() - 1);
@@ -121,19 +131,20 @@ final class FarmingHighlightOverlay extends Overlay {
   /** Debug: each object, or the tiles of a patch made of several as one square. */
   private void logObjects(List<String> parts, String colour, List<TileObject> objects, int[] area) {
     boolean square = false;
-    for (TileObject o : objects)
-      if (inArea(o, area)) square = true;
-      else parts.add(colour + " " + objectName(o));
+    for (TileObject object : objects)
+      if (inArea(object, area)) square = true;
+      else parts.add(colour + " " + objectName(object));
     if (square)
       parts.add(
           colour + " patch square " + area[0] + "," + area[1] + " to " + area[2] + "," + area[3]);
   }
 
-  private String objectName(TileObject o) {
-    net.runelite.api.ObjectComposition c = client.getObjectDefinition(o.getId());
-    if (c != null && c.getImpostorIds() != null && c.getImpostor() != null) c = c.getImpostor();
-    WorldPoint at = o.getWorldLocation();
-    return (c == null ? "object" : c.getName()) + " (" + o.getId() + ") at " + at.getX() + "," + at.getY();
+  private String objectName(TileObject object) {
+    ObjectComposition definition = client.getObjectDefinition(object.getId());
+    if (definition != null && definition.getImpostorIds() != null && definition.getImpostor() != null)
+      definition = definition.getImpostor();
+    WorldPoint at = object.getWorldLocation();
+    return (definition == null ? "object" : definition.getName()) + " (" + object.getId() + ") at " + at.getX() + "," + at.getY();
   }
 
   /**
@@ -152,10 +163,10 @@ final class FarmingHighlightOverlay extends Overlay {
     points.addAll(path);
     g.setStroke(new BasicStroke(4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
     g.setColor(new Color(110, 200, 255, 180));
-    net.runelite.api.Point previous = null;
+    Point previous = null;
     for (WorldPoint tile : points) {
       LocalPoint local = LocalPoint.fromWorld(view, tile);
-      net.runelite.api.Point at =
+      Point at =
           local == null
               ? null
               : Perspective.localToCanvas(

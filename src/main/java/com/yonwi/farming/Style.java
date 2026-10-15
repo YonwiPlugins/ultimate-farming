@@ -1,9 +1,32 @@
 package com.yonwi.farming;
 
-import java.awt.*;
+import java.awt.BasicStroke;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.GradientPaint;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import javax.swing.*;
+import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.Icon;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JScrollBar;
+import javax.swing.JScrollPane;
+import javax.swing.ListCellRenderer;
 import javax.swing.border.EmptyBorder;
 import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.plaf.basic.BasicComboPopup;
@@ -21,22 +44,24 @@ import net.runelite.client.ui.FontManager;
  * BSD-2-Clause, Copyright (c) 2024, Joshua Coffey. See THIRD_PARTY_NOTICES.md.
  */
 final class Style {
-  static final Color BG = ColorScheme.DARK_GRAY_COLOR,
-      CARD = ColorScheme.DARKER_GRAY_COLOR,
-      CARD_BORDER = new Color(62, 63, 65),
-      GOLD = new Color(214, 163, 62),
-      INK = Color.WHITE,
-      MUTED = new Color(190, 190, 190),
-      HERO_TEXT = new Color(205, 215, 207),
-      DONE = new Color(64, 82, 67),
-      DONE_TEXT = new Color(150, 170, 154),
-      SELECT_BACKGROUND = new Color(42, 44, 46),
-      SELECT_BACKGROUND_HOVER = new Color(49, 52, 54),
-      SELECT_BORDER = new Color(76, 79, 82),
-      SELECT_BORDER_ACTIVE = new Color(170, 128, 49),
-      SCROLL_TRACK = new Color(31, 32, 34),
-      SCROLL_THUMB = new Color(91, 94, 97),
-      SCROLL_THUMB_HOVER = new Color(118, 121, 124);
+  static final Color BG = ColorScheme.DARK_GRAY_COLOR;
+  static final Color CARD = ColorScheme.DARKER_GRAY_COLOR;
+  static final Color CARD_BORDER = new Color(62, 63, 65);
+  static final Color GOLD = new Color(214, 163, 62);
+  static final Color INK = Color.WHITE;
+  static final Color MUTED = new Color(190, 190, 190);
+  static final Color HERO_TEXT = new Color(205, 215, 207);
+  static final Color DONE = new Color(64, 82, 67);
+  static final Color DONE_TEXT = new Color(150, 170, 154);
+  static final Color SELECT_BACKGROUND = new Color(42, 44, 46);
+  static final Color SELECT_BACKGROUND_HOVER = new Color(49, 52, 54);
+  static final Color SELECT_BORDER = new Color(76, 79, 82);
+  static final Color SELECT_BORDER_ACTIVE = new Color(170, 128, 49);
+  static final Color SCROLL_TRACK = new Color(31, 32, 34);
+  static final Color SCROLL_THUMB = new Color(91, 94, 97);
+  static final Color SCROLL_THUMB_HOVER = new Color(118, 121, 124);
+  static final Color PRIMARY = new Color(62, 142, 65);
+  static final Color PRIMARY_HOVER = new Color(75, 160, 78);
 
   private Style() {}
 
@@ -53,9 +78,7 @@ final class Style {
     JPanel text = hero(title, subtitle);
     JPanel inner = new JPanel(new BorderLayout(8, 0));
     inner.setOpaque(false);
-    for (Component c : text.getComponents()) {
-      text.remove(c);
-    }
+    for (Component part : text.getComponents()) text.remove(part);
     JPanel lines = new JPanel();
     lines.setOpaque(false);
     lines.setLayout(new BoxLayout(lines, BoxLayout.Y_AXIS));
@@ -109,21 +132,20 @@ final class Style {
     return button;
   }
 
-  static final Color PRIMARY = new Color(62, 142, 65), PRIMARY_HOVER = new Color(75, 160, 78);
-
-  /** A tickbox with a light, easy-to-see box (gold with a tick when ticked). */
+  /**
+   * Every tickbox goes through here so they can be styled in one place. They keep RuneLite's own
+   * look for now (custom light boxes looked out of place).
+   */
   static JCheckBox tickbox(JCheckBox box) {
-    // RuneLite's own tickbox look (the custom light boxes looked out of place).
     return box;
   }
 
   /** Gold section heading in normal case, with an optional grey italic note after it. */
   static JLabel section(String text, String note) {
-    JLabel l = section(text);
+    JLabel label = section(text);
     if (note != null)
-      l.setText(
-          "<html>" + text + " <i><font color='#a0a0a0'>" + note + "</font></i></html>");
-    return l;
+      label.setText("<html>" + text + " <i><font color='#a0a0a0'>" + note + "</font></i></html>");
+    return label;
   }
 
   /** Green gradient header with a capitalised title. */
@@ -172,14 +194,15 @@ final class Style {
 
   /** Small gold section heading, like Hunter Rumours' "Search" label. */
   static JLabel section(String text) {
-    JLabel l = new JLabel(text);
-    l.setFont(small());
-    l.setForeground(GOLD);
-    l.setBorder(new EmptyBorder(6, 2, 3, 0));
-    l.setAlignmentX(Component.LEFT_ALIGNMENT);
-    return l;
+    JLabel label = new JLabel(text);
+    label.setFont(small());
+    label.setForeground(GOLD);
+    label.setBorder(new EmptyBorder(6, 2, 3, 0));
+    label.setAlignmentX(Component.LEFT_ALIGNMENT);
+    return label;
   }
 
+  /** A rounded drop-down with a gold arrow. */
   static void combo(JComboBox<?> choice) {
     choice.setUI(new ComboUI());
     choice.setOpaque(false);
@@ -204,6 +227,7 @@ final class Style {
         });
   }
 
+  /** A slim scrollbar with no arrow buttons. */
   static void scrollBar(JScrollBar bar) {
     bar.setPreferredSize(new Dimension(10, 0));
     bar.setUnitIncrement(48);
@@ -261,7 +285,8 @@ final class Style {
               g.setRenderingHint(
                   RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
               g.setColor(getModel().isRollover() ? Color.WHITE : GOLD);
-              int x = getWidth() / 2, y = getHeight() / 2;
+              int x = getWidth() / 2;
+              int y = getHeight() / 2;
               g.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
               g.drawLine(x - 4, y - 2, x, y + 2);
               g.drawLine(x, y + 2, x + 4, y - 2);

@@ -278,7 +278,7 @@ final class RunTab {
     JLabel picture = new JLabel();
     picture.setPreferredSize(new Dimension(26, 24));
     panel.pictures().small(picture, shown.sapling, 26, 23);
-    long patches = FarmingData.PATCHES.stream().filter(p -> p.kind.equals(kind)).count();
+    long patches = FarmingData.PATCHES.stream().filter(patch -> patch.kind.equals(kind)).count();
     JLabel name = label(kindTitle(kind));
     name.setFont(Style.bold());
     JLabel count = new JLabel(patches + (patches == 1 ? " patch" : " patches"));
@@ -311,7 +311,7 @@ final class RunTab {
     Settings settings = panel.settings();
     JComboBox<Crop> crops =
         new JComboBox<>(
-            FarmingData.CROPS.get(kind).stream().filter(c -> c.level <= settings.level).toArray(Crop[]::new));
+            FarmingData.CROPS.get(kind).stream().filter(crop -> crop.level <= settings.level).toArray(Crop[]::new));
     Style.combo(crops);
     crops.setSelectedItem(settings.crop(kind));
     crops.setEnabled(!panel.runStarted());
@@ -333,7 +333,7 @@ final class RunTab {
     Settings settings = panel.settings();
     Crop crop = settings.crop(kind);
     if (crop == null || kind.equals("herb")) return;
-    long patches = panel.route().stream().filter(s -> s.patch.kind.equals(kind)).count();
+    long patches = panel.route().stream().filter(step -> step.patch.kind.equals(kind)).count();
     card.add(Box.createVerticalStrut(6));
     JCheckBox protect = null;
     JCheckBox harvest = null;
@@ -410,7 +410,7 @@ final class RunTab {
     Settings settings = panel.settings();
     long chosen =
         FarmingData.PATCHES.stream()
-            .filter(p -> settings.kinds.contains(p.kind) && !settings.excluded.contains(p.id))
+            .filter(patch -> settings.kinds.contains(patch.kind) && !settings.excluded.contains(patch.id))
             .count();
     // (The arrow is the same as the Records tables' collapse button.)
     page.add(

@@ -1,21 +1,37 @@
 package com.yonwi.farming;
 
-import java.awt.*;
-import java.awt.geom.*;
+import java.awt.AlphaComposite;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.GradientPaint;
+import java.awt.Graphics2D;
+import java.awt.Polygon;
+import java.awt.RenderingHints;
+import java.awt.geom.Arc2D;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Line2D;
+import java.awt.geom.Path2D;
+import java.awt.geom.QuadCurve2D;
+import java.awt.geom.Rectangle2D;
+import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import javax.swing.ImageIcon;
 
 /** Small hand-drawn icons for the sidebar tabs and the Records stats, sized for the RS font. */
 final class Icons {
-  private static final Color INK = new Color(225, 225, 225),
-      GOLD = new Color(232, 186, 72),
-      GREEN = new Color(120, 200, 90);
+  private static final Color INK = new Color(225, 225, 225);
+  private static final Color GOLD = new Color(232, 186, 72);
+  private static final Color GREEN = new Color(120, 200, 90);
+
+  /** Icons are 16 × 16 pixels. */
+  private static final int SIZE = 16;
 
   private Icons() {}
 
+  /** The named icon (run, kit, setup, records, check…), or a blank one for an unknown name. */
   static ImageIcon get(String name) {
-    int s = 16;
-    BufferedImage img = new BufferedImage(s, s, BufferedImage.TYPE_INT_ARGB);
+    BufferedImage img = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
     Graphics2D g = img.createGraphics();
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
     g.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
@@ -40,11 +56,11 @@ final class Icons {
       case "setup": // a cog
         g.setColor(INK);
         for (int i = 0; i < 8; i++) {
-          double a = Math.PI * i / 4;
+          double angle = Math.PI * i / 4;
           g.draw(
               new Line2D.Double(
-                  8 + 5 * Math.cos(a), 8 + 5 * Math.sin(a), 8 + 7 * Math.cos(a),
-                  8 + 7 * Math.sin(a)));
+                  8 + 5 * Math.cos(angle), 8 + 5 * Math.sin(angle), 8 + 7 * Math.cos(angle),
+                  8 + 7 * Math.sin(angle)));
         }
         g.draw(new Ellipse2D.Double(3.5, 3.5, 9, 9));
         g.draw(new Ellipse2D.Double(6.2, 6.2, 3.6, 3.6));
@@ -193,13 +209,14 @@ final class Icons {
 
   /** The same icon recoloured: every visible pixel takes {@code color}, keeping its opacity. */
   static ImageIcon tint(ImageIcon icon, Color color) {
-    int w = icon.getIconWidth(), h = icon.getIconHeight();
-    BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+    int width = icon.getIconWidth();
+    int height = icon.getIconHeight();
+    BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
     Graphics2D g = img.createGraphics();
     g.drawImage(icon.getImage(), 0, 0, null);
     g.setComposite(AlphaComposite.SrcIn);
     g.setColor(color);
-    g.fillRect(0, 0, w, h);
+    g.fillRect(0, 0, width, height);
     g.dispose();
     return new ImageIcon(img);
   }

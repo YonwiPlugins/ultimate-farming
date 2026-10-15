@@ -1,8 +1,17 @@
 package com.yonwi.farming;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import net.runelite.api.gameval.ItemID;
 
+/** The game data the plugin plans with: crops, patches, item IDs and growth times. */
 final class FarmingData {
   static final Map<String, List<Crop>> CROPS = new LinkedHashMap<>();
   static final Map<String, int[]> IDS = new LinkedHashMap<>();
@@ -391,11 +400,11 @@ PATCHES.add(new Patch("herbguild", "Farming Guild", "herb"));
   static final Map<String, int[]> GROWTH = new HashMap<>();
 
   static {
-    for (Crop c : CROPS.get("herb")) GROWTH.put(c.name, new int[] {20, 5});
+    for (Crop crop : CROPS.get("herb")) GROWTH.put(crop.name, new int[] {20, 5});
     int[][] trees = {{40, 5}, {40, 7}, {40, 9}, {40, 11}, {40, 13}};
     String[] treeNames = {"Oak", "Willow", "Maple", "Yew", "Magic"};
     for (int i = 0; i < trees.length; i++) GROWTH.put(treeNames[i], trees[i]);
-    for (Crop c : CROPS.get("fruit")) GROWTH.put(c.name, new int[] {160, 7});
+    for (Crop crop : CROPS.get("fruit")) GROWTH.put(crop.name, new int[] {160, 7});
     GROWTH.put("Calquat", new int[] {160, 9});
     GROWTH.put("Celastrus", new int[] {160, 6});
     GROWTH.put("Redwood", new int[] {640, 11});

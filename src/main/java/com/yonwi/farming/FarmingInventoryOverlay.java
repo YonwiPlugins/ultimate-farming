@@ -118,17 +118,17 @@ final class FarmingInventoryOverlay extends Overlay {
       if (recording != null) {
         // Grouped by colour, item IDs named: "blue [Rune pouch, Load] · orange [Harmony …]".
         Map<String, Set<String>> byColour = new TreeMap<>();
-        for (String[] r : recording) {
-          String what = r[1];
+        for (String[] entry : recording) {
+          String what = entry[1];
           if (what.startsWith("item ")) {
             int id = Integer.parseInt(what.substring(5));
             what = client.getItemDefinition(id).getName() + " (" + id + ")";
           }
-          byColour.computeIfAbsent(r[0], k -> new TreeSet<>()).add(what);
+          byColour.computeIfAbsent(entry[0], k -> new TreeSet<>()).add(what);
         }
         StringBuilder line = new StringBuilder();
-        for (Map.Entry<String, Set<String>> e : byColour.entrySet())
-          line.append(line.length() > 0 ? " · " : "").append(e.getKey()).append(' ').append(e.getValue());
+        for (Map.Entry<String, Set<String>> group : byColour.entrySet())
+          line.append(line.length() > 0 ? " · " : "").append(group.getKey()).append(' ').append(group.getValue());
         plugin.debug().noteHighlights("interface", line.toString());
         recording = null;
       }
@@ -140,30 +140,30 @@ final class FarmingInventoryOverlay extends Overlay {
     if (recording != null) recording.add(new String[] {colourName(color), what});
   }
 
-  static String colourName(Color c) {
-    if (c.equals(ITEM)) return "blue";
-    if (c.equals(TARGET)) return "light blue";
-    if (c.equals(NEXT)) return "orange";
-    return String.format("#%06x", c.getRGB() & 0xFFFFFF);
+  static String colourName(Color color) {
+    if (color.equals(ITEM)) return "blue";
+    if (color.equals(TARGET)) return "light blue";
+    if (color.equals(NEXT)) return "orange";
+    return String.format("#%06x", color.getRGB() & 0xFFFFFF);
   }
 
   /** A widget in words: its item, text, option or ID. */
-  static String describe(Widget w) {
-    if (w.getItemId() > 0) return "item " + w.getItemId();
-    String text = w.getText() == null ? "" : Text.removeTags(w.getText()).trim();
+  static String describe(Widget widget) {
+    if (widget.getItemId() > 0) return "item " + widget.getItemId();
+    String text = widget.getText() == null ? "" : Text.removeTags(widget.getText()).trim();
     if (!text.isEmpty()) return "'" + text + "'";
-    if (w.getActions() != null)
-      for (String a : w.getActions()) if (a != null && !a.isEmpty()) return "'" + Text.removeTags(a) + "'";
-    String name = w.getName() == null ? "" : Text.removeTags(w.getName()).trim();
+    if (widget.getActions() != null)
+      for (String action : widget.getActions()) if (action != null && !action.isEmpty()) return "'" + Text.removeTags(action) + "'";
+    String name = widget.getName() == null ? "" : Text.removeTags(widget.getName()).trim();
     if (!name.isEmpty()) return "'" + name + "'";
-    return "widget " + (w.getId() >>> 16) + "/" + (w.getId() & 0xFFFF);
+    return "widget " + (widget.getId() >>> 16) + "/" + (widget.getId() & 0xFFFF);
   }
 
   /** Marks a widget, cut to what its parents show. */
-  private static void markVisible(Graphics2D g, Widget w, Color color) {
-    Rectangle visible = visibleBounds(w);
+  private static void markVisible(Graphics2D g, Widget widget, Color color) {
+    Rectangle visible = visibleBounds(widget);
     if (visible.isEmpty()) return;
-    note(describe(w), color);
+    note(describe(widget), color);
     draw(g, visible, color);
   }
 
@@ -461,8 +461,8 @@ final class FarmingInventoryOverlay extends Overlay {
   private List<Widget> visibleChildren(int containerId) {
     List<Widget> out = new ArrayList<>();
     Widget container = client.getWidget(containerId);
-    Widget[] kids = container == null || container.isHidden() ? null : container.getDynamicChildren();
-    if (kids != null) for (Widget kid : kids) if (kid != null && !kid.isHidden() && kid.getItemId() > 0) out.add(kid);
+    Widget[] children = container == null || container.isHidden() ? null : container.getDynamicChildren();
+    if (children != null) for (Widget child : children) if (child != null && !child.isHidden() && child.getItemId() > 0) out.add(child);
     return out;
   }
 
@@ -479,9 +479,9 @@ final class FarmingInventoryOverlay extends Overlay {
           found.add(widget);
           break;
         }
-    for (Widget[] kids :
+    for (Widget[] children :
         new Widget[][] {widget.getStaticChildren(), widget.getDynamicChildren(), widget.getNestedChildren()})
-      if (kids != null) for (Widget kid : kids) loadButtons(kid, found, depth + 1);
+      if (children != null) for (Widget child : children) loadButtons(child, found, depth + 1);
   }
 
   /** Item IDs pictured anywhere inside a widget. */
@@ -489,8 +489,8 @@ final class FarmingInventoryOverlay extends Overlay {
     Set<Integer> ids = new HashSet<>();
     if (widget == null || depth > 3) return ids;
     if (widget.getItemId() > 0) ids.add(widget.getItemId());
-    for (Widget[] kids : new Widget[][] {widget.getStaticChildren(), widget.getDynamicChildren()})
-      if (kids != null) for (Widget kid : kids) ids.addAll(runesIn(kid, depth + 1));
+    for (Widget[] children : new Widget[][] {widget.getStaticChildren(), widget.getDynamicChildren()})
+      if (children != null) for (Widget child : children) ids.addAll(runesIn(child, depth + 1));
     return ids;
   }
 
@@ -525,8 +525,8 @@ final class FarmingInventoryOverlay extends Overlay {
       InterfaceID.FairyringsLog.UNIVERSE
     };
     for (int id : menus) {
-      Widget w = client.getWidget(id);
-      if (w != null && !w.isHidden()) return true;
+      Widget menu = client.getWidget(id);
+      if (menu != null && !menu.isHidden()) return true;
     }
     return false;
   }
@@ -553,10 +553,10 @@ final class FarmingInventoryOverlay extends Overlay {
   }
 
   /** Highlights a widget in the given colour. */
-  static void mark(Graphics2D g, Widget w, Color color) {
-    if (w == null || w.isHidden()) return;
-    note(describe(w), color);
-    draw(g, w.getBounds(), color);
+  static void mark(Graphics2D g, Widget widget, Color color) {
+    if (widget == null || widget.isHidden()) return;
+    note(describe(widget), color);
+    draw(g, widget.getBounds(), color);
   }
 
   /** With {@code unnotedOnly}, noted copies aren't marked: for noting, they're already done. */
@@ -588,18 +588,18 @@ final class FarmingInventoryOverlay extends Overlay {
       // once you have enough.
       int left = plugin.kit().remaining(item.getItemId());
       if (left < 0) continue;
-      Rectangle b = item.getBounds();
+      Rectangle bounds = item.getBounds();
       if (left == 0) {
-        Icons.get("check").paintIcon(null, g, b.x + b.width - 14, b.y + b.height - 15);
+        Icons.get("check").paintIcon(null, g, bounds.x + bounds.width - 14, bounds.y + bounds.height - 15);
         continue;
       }
       if (plugin.kit().count(item.getItemId()) <= 1) continue; // a single item needs no number
       // Coins get no number: the sidebar says when you're short.
       if (item.getItemId() == ItemID.COINS) continue;
       String text = "×" + left;
-      int x = b.x + b.width - g.getFontMetrics().stringWidth(text);
+      int x = bounds.x + bounds.width - g.getFontMetrics().stringWidth(text);
       // Bottom right, clear of the bank's own yellow stack size in the top left.
-      int y = b.y + b.height - 1;
+      int y = bounds.y + bounds.height - 1;
       g.setColor(Color.BLACK);
       g.drawString(text, x + 1, y + 1);
       g.setColor(ITEM);
@@ -676,39 +676,39 @@ final class FarmingInventoryOverlay extends Overlay {
    * Marks the widget whose name or click option names this place, searching nested widgets: the
    * charter map's X and the Destination list's row both have the port as their option.
    */
-  private void markNamed(Graphics2D g, Widget w, String place, int depth) {
-    if (w == null || w.isHidden() || depth > 10) return;
-    StringBuilder all = new StringBuilder(w.getName() == null ? "" : w.getName());
-    if (w.getActions() != null) for (String a : w.getActions()) if (a != null) all.append(' ').append(a);
+  private void markNamed(Graphics2D g, Widget widget, String place, int depth) {
+    if (widget == null || widget.isHidden() || depth > 10) return;
+    StringBuilder all = new StringBuilder(widget.getName() == null ? "" : widget.getName());
+    if (widget.getActions() != null) for (String action : widget.getActions()) if (action != null) all.append(' ').append(action);
     String name = Text.removeTags(all.toString()).toLowerCase(Locale.ROOT);
     if (name.contains(place)) {
-      markVisible(g, w, ITEM);
+      markVisible(g, widget, ITEM);
       return;
     }
-    for (Widget[] kids :
-        new Widget[][] {w.getStaticChildren(), w.getDynamicChildren(), w.getNestedChildren()})
-      if (kids != null) for (Widget k : kids) markNamed(g, k, place, depth + 1);
+    for (Widget[] children :
+        new Widget[][] {widget.getStaticChildren(), widget.getDynamicChildren(), widget.getNestedChildren()})
+      if (children != null) for (Widget child : children) markNamed(g, child, place, depth + 1);
   }
 
-  private void markText(Graphics2D g, Widget w, String place, int depth) {
-    if (w == null || w.isHidden() || depth > 6) return;
-    String text = w.getText() == null ? "" : Text.removeTags(w.getText()).toLowerCase(Locale.ROOT);
+  private void markText(Graphics2D g, Widget widget, String place, int depth) {
+    if (widget == null || widget.isHidden() || depth > 6) return;
+    String text = widget.getText() == null ? "" : Text.removeTags(widget.getText()).toLowerCase(Locale.ROOT);
     if (!text.isEmpty() && text.contains(place)) {
-      markVisible(g, w, ITEM);
+      markVisible(g, widget, ITEM);
       return;
     }
-    for (Widget[] kids :
-        new Widget[][] {w.getStaticChildren(), w.getDynamicChildren(), w.getNestedChildren()})
-      if (kids != null) for (Widget k : kids) markText(g, k, place, depth + 1);
+    for (Widget[] children :
+        new Widget[][] {widget.getStaticChildren(), widget.getDynamicChildren(), widget.getNestedChildren()})
+      if (children != null) for (Widget child : children) markText(g, child, place, depth + 1);
   }
 
   /**
    * A widget's bounds cut to what its parents show. Menu text rows (e.g. the portal nexus list)
    * are wider than their scroll box, and rows scrolled out of view lie outside it.
    */
-  private static Rectangle visibleBounds(Widget w) {
-    Rectangle bounds = w.getBounds();
-    for (Widget parent = w.getParent(); parent != null; parent = parent.getParent())
+  private static Rectangle visibleBounds(Widget widget) {
+    Rectangle bounds = widget.getBounds();
+    for (Widget parent = widget.getParent(); parent != null; parent = parent.getParent())
       bounds = bounds.intersection(parent.getBounds());
     return bounds;
   }
@@ -721,7 +721,7 @@ final class FarmingInventoryOverlay extends Overlay {
     String text = travel.toLowerCase(Locale.ROOT);
     if (!text.contains("quetzal")) return;
     String site = null;
-    for (String s : QUETZAL_SITES) if (text.contains(s)) site = s;
+    for (String known : QUETZAL_SITES) if (text.contains(known)) site = known;
     if (site == null) return;
     for (int id : new int[] {InterfaceID.QuetzalwhistleMenu.ICONS, InterfaceID.QuetzalMenu.ICONS}) {
       Widget icons = client.getWidget(id);
@@ -732,7 +732,7 @@ final class FarmingInventoryOverlay extends Overlay {
         if (icon == null || icon.isHidden()) continue;
         StringBuilder words = new StringBuilder(Text.removeTags(icon.getName()));
         if (icon.getActions() != null)
-          for (String a : icon.getActions()) if (a != null) words.append(' ').append(a);
+          for (String action : icon.getActions()) if (action != null) words.append(' ').append(action);
         if (words.toString().toLowerCase(Locale.ROOT).contains(site))
           mark(g, icon, ITEM);
       }
@@ -755,15 +755,15 @@ final class FarmingInventoryOverlay extends Overlay {
 
   private Widget stone(int tab) {
     for (int id : STONES[tab]) {
-      Widget w = client.getWidget(id);
-      if (w != null && !w.isHidden()) return w;
+      Widget widget = client.getWidget(id);
+      if (widget != null && !widget.isHidden()) return widget;
     }
     return null;
   }
 
   /** Bright outline with a 20% fill. */
-  static void mark(Graphics2D g, Widget w) {
-    mark(g, w, ITEM);
+  static void mark(Graphics2D g, Widget widget) {
+    mark(g, widget, ITEM);
   }
 
   static void mark(Graphics2D g, Shape shape, Color color) {

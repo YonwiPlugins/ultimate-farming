@@ -371,28 +371,28 @@ final class TravelChoices {
 
   /** A walk, spirit tree or boat straight from one patch to the next, or null if there's none. */
   static FarmingPlanner.Choice between(Patch from, Patch to, Settings settings) {
-    String a = from.id;
-    String b = to.id;
-    Set<String> pair = new HashSet<>(Arrays.asList(a, b));
-    if (inFarmingGuild(a) && inFarmingGuild(b)) return walk("Walk within Farming Guild to " + to.kind + " patch", .4);
-    if (a.startsWith("fossil") && b.startsWith("fossil"))
-      return walk("Walk to Fossil Island hardwood patch " + b.substring(6), .12);
+    String fromId = from.id;
+    String toId = to.id;
+    Set<String> pair = new HashSet<>(Arrays.asList(fromId, toId));
+    if (inFarmingGuild(fromId) && inFarmingGuild(toId)) return walk("Walk within Farming Guild to " + to.kind + " patch", .4);
+    if (fromId.startsWith("fossil") && toId.startsWith("fossil"))
+      return walk("Walk to Fossil Island hardwood patch " + toId.substring(6), .12);
     if (pair.containsAll(Arrays.asList("catherby", "herbcatherby"))) return walk("Walk to Catherby " + to.kind + " patch", .5);
     if (pair.containsAll(Arrays.asList("strongtree", "strongfruit")))
-      return walk("Walk to the Stronghold " + to.kind + " patch", a.equals("strongtree") ? .38 : .43);
+      return walk("Walk to the Stronghold " + to.kind + " patch", fromId.equals("strongtree") ? .38 : .43);
     if (pair.containsAll(Arrays.asList("falador", "taverley"))) return walk("Run between Falador Park and Taverley", 1.85);
     if (pair.containsAll(Arrays.asList("kastori", "kastoricalquat"))) return walk("Walk to the Kastori " + to.kind + " patch", .5);
     if (pair.containsAll(Arrays.asList("brimhaven", "calquat")))
       return walk(
-          b.equals("calquat") ? "Run south to Tai Bwo Wannai Calquat patch" : "Run north to Brimhaven fruit patch", 2);
-    // With a spirit tree in the house, every spirit tree trip goes from there (cape → house tree).
+          toId.equals("calquat") ? "Run south to Tai Bwo Wannai Calquat patch" : "Run north to Brimhaven fruit patch", 2);
+    // With fromId spirit tree in the house, every spirit tree trip goes from there (cape → house tree).
     boolean spiritTrees = settings.has("gnome") && !FarmingPlanner.houseTree(settings);
-    if (spiritTrees && a.startsWith("strong") && b.equals("village"))
+    if (spiritTrees && fromId.startsWith("strong") && toId.equals("village"))
       return walk("Spirit tree to Tree Gnome Village, then follow Elkoy", 1.65);
-    if (spiritTrees && a.equals("village") && b.startsWith("strong")) return walk("Spirit tree to Gnome Stronghold", 1.7);
-    if (a.equals("catherby") && b.equals("brimhaven")) return boat("Charter ship to Brimhaven", 2.3);
-    if (a.equals("brimhaven") && b.equals("catherby")) return boat("Charter ship to Catherby", 2.5);
-    if ((a.equals("catherby") || a.equals("brimhaven")) && b.equals("anglers"))
+    if (spiritTrees && fromId.equals("village") && toId.startsWith("strong")) return walk("Spirit tree to Gnome Stronghold", 1.7);
+    if (fromId.equals("catherby") && toId.equals("brimhaven")) return boat("Charter ship to Brimhaven", 2.3);
+    if (fromId.equals("brimhaven") && toId.equals("catherby")) return boat("Charter ship to Catherby", 2.5);
+    if ((fromId.equals("catherby") || fromId.equals("brimhaven")) && toId.equals("anglers"))
       return boat("Charter to Corsair Cove, rowboat to Anglers’ Retreat", 2.8);
     return null;
   }

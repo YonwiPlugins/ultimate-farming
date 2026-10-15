@@ -27,44 +27,52 @@ final class TimeTrackingData {
     PATCHES.put(id, new Object[] {region, varbit, type});
   }
 
-  private static final int A = 4771, B = 4772, C = 4773, D = 4774, E = 4775;
-  private static final int G = 7905, I = 7907, K = 7909, L = 7910;
+  // The patches' varbits, named as in RuneLite's VarbitID (FARMING_TRANSMIT_A…).
+  private static final int TRANSMIT_A = 4771;
+  private static final int TRANSMIT_B = 4772;
+  private static final int TRANSMIT_C = 4773;
+  private static final int TRANSMIT_D = 4774;
+  private static final int TRANSMIT_E = 4775;
+  private static final int TRANSMIT_G = 7905;
+  private static final int TRANSMIT_I = 7907;
+  private static final int TRANSMIT_K = 7909;
+  private static final int TRANSMIT_L = 7910;
 
   static {
-    patch("herbardougne", 10548, D, "HERB");
-    patch("herbcatherby", 11062, D, "HERB");
-    patch("herbfalador", 12083, D, "HERB");
-    patch("herbphasmatys", 14391, D, "HERB");
-    patch("herbhosidius", 6967, D, "HERB");
-    patch("herbfortis", 6192, D, "HERB");
-    patch("herbguild", 4922, E, "HERB");
-    patch("herbtroll", 11321, A, "HERB");
-    patch("herbweiss", 11325, A, "HERB");
-    patch("herbharmony", 15148, B, "HERB");
-    patch("falador", 11828, A, "TREE");
-    patch("taverley", 11573, A, "TREE");
-    patch("lumbridge", 12594, A, "TREE");
-    patch("varrock", 12854, A, "TREE");
-    patch("strongtree", 9781, A, "TREE");
-    patch("guildtree", 4922, G, "TREE");
-    patch("auburn", 5427, A, "TREE");
-    patch("strongfruit", 9781, B, "FRUIT_TREE");
-    patch("village", 9777, A, "FRUIT_TREE");
-    patch("brimhaven", 11058, A, "FRUIT_TREE");
-    patch("catherby", 11317, A, "FRUIT_TREE");
-    patch("lletya", 9265, A, "FRUIT_TREE");
-    patch("guildfruit", 4922, K, "FRUIT_TREE");
-    patch("kastori", 5423, B, "FRUIT_TREE");
-    patch("calquat", 11056, A, "CALQUAT");
-    patch("kastoricalquat", 5423, A, "CALQUAT");
-    patch("summercalquat", 12581, C, "CALQUAT");
-    patch("fossil1", 14651, A, "HARDWOOD_TREE");
-    patch("fossil2", 14651, B, "HARDWOOD_TREE");
-    patch("fossil3", 14651, C, "HARDWOOD_TREE");
-    patch("locus", 6702, A, "HARDWOOD_TREE");
-    patch("anglers", 9770, A, "HARDWOOD_TREE");
-    patch("guildredwood", 4922, I, "REDWOOD");
-    patch("guildcelastrus", 4922, L, "CELASTRUS");
+    patch("herbardougne", 10548, TRANSMIT_D, "HERB");
+    patch("herbcatherby", 11062, TRANSMIT_D, "HERB");
+    patch("herbfalador", 12083, TRANSMIT_D, "HERB");
+    patch("herbphasmatys", 14391, TRANSMIT_D, "HERB");
+    patch("herbhosidius", 6967, TRANSMIT_D, "HERB");
+    patch("herbfortis", 6192, TRANSMIT_D, "HERB");
+    patch("herbguild", 4922, TRANSMIT_E, "HERB");
+    patch("herbtroll", 11321, TRANSMIT_A, "HERB");
+    patch("herbweiss", 11325, TRANSMIT_A, "HERB");
+    patch("herbharmony", 15148, TRANSMIT_B, "HERB");
+    patch("falador", 11828, TRANSMIT_A, "TREE");
+    patch("taverley", 11573, TRANSMIT_A, "TREE");
+    patch("lumbridge", 12594, TRANSMIT_A, "TREE");
+    patch("varrock", 12854, TRANSMIT_A, "TREE");
+    patch("strongtree", 9781, TRANSMIT_A, "TREE");
+    patch("guildtree", 4922, TRANSMIT_G, "TREE");
+    patch("auburn", 5427, TRANSMIT_A, "TREE");
+    patch("strongfruit", 9781, TRANSMIT_B, "FRUIT_TREE");
+    patch("village", 9777, TRANSMIT_A, "FRUIT_TREE");
+    patch("brimhaven", 11058, TRANSMIT_A, "FRUIT_TREE");
+    patch("catherby", 11317, TRANSMIT_A, "FRUIT_TREE");
+    patch("lletya", 9265, TRANSMIT_A, "FRUIT_TREE");
+    patch("guildfruit", 4922, TRANSMIT_K, "FRUIT_TREE");
+    patch("kastori", 5423, TRANSMIT_B, "FRUIT_TREE");
+    patch("calquat", 11056, TRANSMIT_A, "CALQUAT");
+    patch("kastoricalquat", 5423, TRANSMIT_A, "CALQUAT");
+    patch("summercalquat", 12581, TRANSMIT_C, "CALQUAT");
+    patch("fossil1", 14651, TRANSMIT_A, "HARDWOOD_TREE");
+    patch("fossil2", 14651, TRANSMIT_B, "HARDWOOD_TREE");
+    patch("fossil3", 14651, TRANSMIT_C, "HARDWOOD_TREE");
+    patch("locus", 6702, TRANSMIT_A, "HARDWOOD_TREE");
+    patch("anglers", 9770, TRANSMIT_A, "HARDWOOD_TREE");
+    patch("guildredwood", 4922, TRANSMIT_I, "REDWOOD");
+    patch("guildcelastrus", 4922, TRANSMIT_L, "CELASTRUS");
   }
 
   /**
@@ -113,9 +121,9 @@ final class TimeTrackingData {
    * that isn't a growing crop (ready, dead, empty) gives the time it was seen: it needs you now.
    */
   static Long readyAt(ConfigManager config, String patchId) {
-    Object[] p = PATCHES.get(patchId);
-    if (p == null) return null;
-    String stored = config.getRSProfileConfiguration("timetracking", p[0] + "." + p[1]);
+    Object[] patch = PATCHES.get(patchId);
+    if (patch == null) return null;
+    String stored = config.getRSProfileConfiguration("timetracking", patch[0] + "." + patch[1]);
     if (stored == null) return null;
     String[] parts = stored.split(":");
     if (parts.length != 2) return null;
@@ -128,13 +136,28 @@ final class TimeTrackingData {
       return null;
     }
     if (seen <= 0) return null;
-    for (int[] r : GROWING.get((String) p[2])) {
-      if (value < r[0] || value > r[1]) continue;
-      int stages = r[3];
-      int stage = r[4] == 0 ? value - r[5] : r[4] == 1 ? r[5] - value : r[4] == 2 ? r[5] : stages - r[5];
-      return tickTime(config, r[2], stages - 1 - stage, seen) * 1000;
+    for (int[] range : GROWING.get((String) patch[2])) {
+      if (value < range[0] || value > range[1]) continue;
+      int stages = range[3];
+      int stage = stageOf(value, range);
+      return tickTime(config, range[2], stages - 1 - stage, seen) * 1000;
     }
     return seen * 1000;
+  }
+
+  /** The growth stage a varbit value means, by the range's rule (see {@link #GROWING}). */
+  private static int stageOf(int value, int[] range) {
+    int k = range[5];
+    switch (range[4]) {
+      case 0:
+        return value - k;
+      case 1:
+        return k - value;
+      case 2:
+        return k;
+      default:
+        return range[3] - k;
+    }
   }
 
   /**

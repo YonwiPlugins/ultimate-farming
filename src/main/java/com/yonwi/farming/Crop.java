@@ -1,9 +1,16 @@
 package com.yonwi.farming;
 
+/** A crop: its level, what's planted, its XP, its produce and the gardener's payment. */
 final class Crop {
-  final String name, sapling, fruit, payment;
-  final int level, paymentQty;
-  final double plant, check, harvest;
+  final String name;
+  final String sapling;
+  final String fruit;
+  final String payment;
+  final int level;
+  final int paymentQty;
+  final double plant;
+  final double check;
+  final double harvest;
 
   Crop(
       String name,

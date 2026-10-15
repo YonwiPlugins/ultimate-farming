@@ -1,8 +1,8 @@
 package com.yonwi.farming;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -58,7 +58,8 @@ final class WorldPath {
 
   /** A walking shortcut: door, gate, stile or Agility shortcut, from Shortest Path's data. */
   private static final class Link {
-    final int x, y;
+    final int x;
+    final int y;
     /** e.g. "50 Agility;78 Mining", or "". */
     final String skills;
 
@@ -91,7 +92,7 @@ final class WorldPath {
   private static void loadLinks(String resource, Map<Long, List<Link>> into) throws IOException {
     try (InputStream raw = WorldPath.class.getResourceAsStream(resource)) {
       if (raw == null) return;
-      String[] lines = new String(readAll(raw), java.nio.charset.StandardCharsets.UTF_8).split("\n");
+      String[] lines = new String(Tables.readAll(raw), StandardCharsets.UTF_8).split("\n");
       Map<String, Integer> column = new HashMap<>();
       for (String line : lines) {
         if (line.startsWith("# Origin")) {
@@ -101,33 +102,28 @@ final class WorldPath {
         }
         if (line.isEmpty() || line.startsWith("#") || column.isEmpty()) continue;
         String[] cells = line.split("\t", -1);
-        String[] from = cell(cells, column, "Origin").split(" ");
-        String[] to = cell(cells, column, "Destination").split(" ");
+        String[] from = Tables.cell(cells, column, "Origin").split(" ");
+        String[] to = Tables.cell(cells, column, "Destination").split(" ");
         if (from.length < 3 || to.length < 3) continue;
-        if (!cell(cells, column, "Items").isEmpty()
-            || !cell(cells, column, "Varbits").isEmpty()
-            || !cell(cells, column, "VarPlayers").isEmpty()) continue;
+        if (!Tables.cell(cells, column, "Items").isEmpty()
+            || !Tables.cell(cells, column, "Varbits").isEmpty()
+            || !Tables.cell(cells, column, "VarPlayers").isEmpty()) continue;
         try {
-          int fz = Integer.parseInt(from[2].trim());
-          int tz = Integer.parseInt(to[2].trim());
-          if (fz != tz) continue;
-          long origin = key(Integer.parseInt(from[0]), Integer.parseInt(from[1]), fz);
+          int fromPlane = Integer.parseInt(from[2].trim());
+          int toPlane = Integer.parseInt(to[2].trim());
+          if (fromPlane != toPlane) continue;
+          long origin = key(Integer.parseInt(from[0]), Integer.parseInt(from[1]), fromPlane);
           into.computeIfAbsent(origin, k -> new ArrayList<>())
               .add(
                   new Link(
                       Integer.parseInt(to[0]),
                       Integer.parseInt(to[1]),
-                      cell(cells, column, "Skills")));
+                      Tables.cell(cells, column, "Skills")));
         } catch (NumberFormatException ignored) {
           // A malformed row: skip it.
         }
       }
     }
-  }
-
-  private static String cell(String[] cells, Map<String, Integer> column, String name) {
-    Integer i = column.get(name);
-    return i == null || i >= cells.length ? "" : cells[i].trim();
   }
 
   /** Whether your levels meet a requirement like "50 Agility;78 Mining". */
@@ -165,20 +161,13 @@ final class WorldPath {
         while ((entry = zip.getNextEntry()) != null) {
           String[] xy = entry.getName().split("_");
           int key = Integer.parseInt(xy[0]) << 16 | Integer.parseInt(xy[1]);
-          loaded.put(key, BitSet.valueOf(readAll(zip)));
+          loaded.put(key, BitSet.valueOf(Tables.readAll(zip)));
         }
       }
       regions = loaded;
     } catch (IOException | RuntimeException ignored) {
       // No map: callers keep using the loaded-scene route.
     }
-  }
-
-  private static byte[] readAll(InputStream in) throws IOException {
-    ByteArrayOutputStream out = new ByteArrayOutputStream();
-    byte[] buffer = new byte[8192];
-    for (int n; (n = in.read(buffer)) > 0; ) out.write(buffer, 0, n);
-    return out.toByteArray();
   }
 
   /** One of a tile's flags, as in Shortest Path's SplitFlagMap.get. */
@@ -191,25 +180,25 @@ final class WorldPath {
     return bit < bits.size() && bits.get(bit);
   }
 
-  // Movement rules from Shortest Path's CollisionMap.
-  private static boolean n(int x, int y, int z) {
+  // Movement rules from Shortest Path's CollisionMap: whether each edge of a tile is open.
+  private static boolean openNorth(int x, int y, int z) {
     return flag(x, y, z, FLAG_NORTH);
   }
 
-  private static boolean s(int x, int y, int z) {
-    return n(x, y - 1, z);
+  private static boolean openSouth(int x, int y, int z) {
+    return openNorth(x, y - 1, z);
   }
 
-  private static boolean e(int x, int y, int z) {
+  private static boolean openEast(int x, int y, int z) {
     return flag(x, y, z, FLAG_EAST);
   }
 
-  private static boolean w(int x, int y, int z) {
-    return e(x - 1, y, z);
+  private static boolean openWest(int x, int y, int z) {
+    return openEast(x - 1, y, z);
   }
 
   private static boolean blocked(int x, int y, int z) {
-    return !n(x, y, z) && !s(x, y, z) && !e(x, y, z) && !w(x, y, z);
+    return !openNorth(x, y, z) && !openSouth(x, y, z) && !openEast(x, y, z) && !openWest(x, y, z);
   }
 
   /** Whether one step (dx, dy) from (x, y) is allowed. */
@@ -219,14 +208,14 @@ final class WorldPath {
       if (dx == 0 || dy == 0) return !blocked(x + dx, y + dy, z);
       return !blocked(x + dx, y + dy, z) && !blocked(x + dx, y, z) && !blocked(x, y + dy, z);
     }
-    if (dx == 0 && dy == 1) return n(x, y, z);
-    if (dx == 0 && dy == -1) return s(x, y, z);
-    if (dx == 1 && dy == 0) return e(x, y, z);
-    if (dx == -1 && dy == 0) return w(x, y, z);
-    if (dx == 1 && dy == 1) return n(x, y, z) && e(x, y + 1, z) && e(x, y, z) && n(x + 1, y, z);
-    if (dx == -1 && dy == 1) return n(x, y, z) && w(x, y + 1, z) && w(x, y, z) && n(x - 1, y, z);
-    if (dx == 1 && dy == -1) return s(x, y, z) && e(x, y - 1, z) && e(x, y, z) && s(x + 1, y, z);
-    return s(x, y, z) && w(x, y - 1, z) && w(x, y, z) && s(x - 1, y, z);
+    if (dx == 0 && dy == 1) return openNorth(x, y, z);
+    if (dx == 0 && dy == -1) return openSouth(x, y, z);
+    if (dx == 1 && dy == 0) return openEast(x, y, z);
+    if (dx == -1 && dy == 0) return openWest(x, y, z);
+    if (dx == 1 && dy == 1) return openNorth(x, y, z) && openEast(x, y + 1, z) && openEast(x, y, z) && openNorth(x + 1, y, z);
+    if (dx == -1 && dy == 1) return openNorth(x, y, z) && openWest(x, y + 1, z) && openWest(x, y, z) && openNorth(x - 1, y, z);
+    if (dx == 1 && dy == -1) return openSouth(x, y, z) && openEast(x, y - 1, z) && openEast(x, y, z) && openSouth(x + 1, y, z);
+    return openSouth(x, y, z) && openWest(x, y - 1, z) && openWest(x, y, z) && openSouth(x - 1, y, z);
   }
 
   private static final int[][] STEPS = {

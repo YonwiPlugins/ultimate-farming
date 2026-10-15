@@ -1,9 +1,19 @@
 package com.yonwi.farming;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
 
+/** Everything the plugin needs to guide one step of the run: where, what to do and with what. */
 final class Guidance {
-  final String patchId, destination, kind, travel, action, phase;
+  final String patchId;
+  final String destination;
+  final String kind;
+  final String travel;
+  final String action;
+  final String phase;
   /** Every action at this patch in order, and which one is being guided. */
   final List<String> phases;
   /** Specific wording for each substep, e.g. "Plant Ranarr seed". */
@@ -12,7 +22,8 @@ final class Guidance {
   final int phaseIndex;
   /** Standard spellbook teleport to cast while travelling, or null. */
   final String spell;
-  final int step, total;
+  final int step;
+  final int total;
   final List<String> items;
   /** The substep after this one and its items, highlighted in a second colour; null at the end. */
   final String nextPhase;
@@ -23,7 +34,8 @@ final class Guidance {
   /** Expected herbs here if the patch is alive, for judging whether they'll fit. */
   int herbsIfAlive = 8;
   /** The stage before this one (its patch and kind), or null for the first. */
-  String prevPatchId, prevKind;
+  String prevPatchId;
+  String prevKind;
   /** The next patch's teleport item(s), shown in orange during this patch's last step. */
   List<String> nextTravelItems = Collections.emptyList();
   /** What a harvest here gives, unnoted ("Celastrus bark", "Coconut"…); empty for none or herbs. */
@@ -31,28 +43,30 @@ final class Guidance {
   /** Dead herbs here should get Resurrect Crops before anything else. */
   boolean resurrect;
   /** The patch after this one and how to get there, for the "Next up" line; null at the end. */
-  String nextDestination, nextTravel;
+  String nextDestination;
+  String nextTravel;
   /** The next stage's patch and kind, and its expected herbs if alive (for noting before leaving). */
-  String nextPatchId, nextKind;
+  String nextPatchId;
+  String nextKind;
   int nextHerbsIfAlive = 8;
 
-  Guidance(FarmingPlanner.Step s, Settings setup, int step, int total, String phase) {
-    this(s, setup, step, total, phase, true);
+  Guidance(FarmingPlanner.Step at, Settings setup, int step, int total, String phase) {
+    this(at, setup, step, total, phase, true);
   }
 
   private Guidance(
-      FarmingPlanner.Step s, Settings setup, int step, int total, String phase, boolean withNext) {
-    patchId = s.patch.id;
-    destination = s.patch.name;
-    kind = s.patch.kind;
-    travel = s.travel.text;
+      FarmingPlanner.Step at, Settings setup, int step, int total, String phase, boolean withNext) {
+    patchId = at.patch.id;
+    destination = at.patch.name;
+    kind = at.patch.kind;
+    travel = at.travel.text;
     this.step = step;
     this.total = total;
     this.phase = phase;
-    phases = phases(s, setup);
+    phases = phases(at, setup);
     phaseIndex = Math.max(0, phases.indexOf(phase));
-    spell = spell(s.travel);
-    for (String p : phases) labels.add(label(p, s, setup));
+    spell = spell(at.travel);
+    for (String each : phases) labels.add(label(each, at, setup));
     Crop crop = setup.crop(kind);
     if (kind.equals("celastrus")) produce = "Celastrus bark";
     else if (crop != null && crop.fruit != null && !kind.equals("herb")) produce = crop.fruit;
@@ -60,8 +74,8 @@ final class Guidance {
     switch (phase) {
       case "Travel":
         action = travel;
-        items.addAll(s.travel.items);
-        items.addAll(s.travel.gear);
+        items.addAll(at.travel.items);
+        items.addAll(at.travel.gear);
         if (spell != null) items.remove("Rune pouch");
         break;
       case "Note carried":
@@ -73,9 +87,11 @@ final class Guidance {
         break;
       case "Harvest":
         action =
-            kind.equals("herb") ? "Harvest all herbs. If inventory fills, note here; otherwise carry to the next noting stop." : kind.equals("celastrus")
-                ? "Harvest Celastrus bark with an axe."
-                : "Pick all six fruit before clearing.";
+            kind.equals("herb")
+                ? "Harvest all herbs. If inventory fills, note here; otherwise carry to the next noting stop."
+                : kind.equals("celastrus")
+                    ? "Harvest Celastrus bark with an axe."
+                    : "Pick all six fruit before clearing.";
         // (No axe highlight: it's used straight from the inventory.)
         if (kind.equals("herb") && setup.secateurs) items.add("Magic secateurs");
         break;
@@ -106,27 +122,30 @@ final class Guidance {
     nextItems =
         nextPhase == null
             ? Collections.emptyList()
-            : new Guidance(s, setup, step, total, nextPhase, false).items;
+            : new Guidance(at, setup, step, total, nextPhase, false).items;
   }
 
-  static List<String> phases(FarmingPlanner.Step step, Settings s) {
-    if(step.patch.kind.equals("herb")) {
-      List<String> herb = new ArrayList<>(); herb.add("Travel");
-      if(step.noteBefore) herb.add("Note carried");
-      herb.addAll(Arrays.asList("Harvest","Plant","Compost"));
-      if(step.noteAfter) herb.add("Note harvest");
+  /** Every step at a patch, in order. */
+  static List<String> phases(FarmingPlanner.Step step, Settings settings) {
+    String kind = step.patch.kind;
+    if (kind.equals("herb")) {
+      List<String> herb = new ArrayList<>();
+      herb.add("Travel");
+      if (step.noteBefore) herb.add("Note carried");
+      herb.addAll(Arrays.asList("Harvest", "Plant", "Compost"));
+      if (step.noteAfter) herb.add("Note harvest");
       return herb;
     }
-    List<String> p = new ArrayList<>(Arrays.asList("Travel", "Check health"));
-    Crop crop = s.crop(step.patch.kind);
-    if (s.harvests(step.patch.kind) && (step.patch.kind.equals("celastrus") || !crop.fruit.isEmpty())) p.add("Harvest");
-    p.add("Clear");
-    p.add("Plant");
-    if (s.pays(step.patch)) p.add("Protect");
-    if (s.composts(step.patch)) p.add("Compost");
-    if (s.harvests(step.patch.kind) && (!crop.fruit.isEmpty() || step.patch.kind.equals("celastrus")))
-      p.add("Note harvest");
-    return p;
+    List<String> phases = new ArrayList<>(Arrays.asList("Travel", "Check health"));
+    Crop crop = settings.crop(kind);
+    boolean produce = settings.harvests(kind) && (kind.equals("celastrus") || !crop.fruit.isEmpty());
+    if (produce) phases.add("Harvest");
+    phases.add("Clear");
+    phases.add("Plant");
+    if (settings.pays(step.patch)) phases.add("Protect");
+    if (settings.composts(step.patch)) phases.add("Compost");
+    if (produce) phases.add("Note harvest");
+    return phases;
   }
 
   /** The spell cast from the rune pouch for this travel choice, if any. */
@@ -137,20 +156,20 @@ final class Guidance {
     return "House";
   }
 
-  static String label(String phase, FarmingPlanner.Step s, Settings setup) {
-    String kind = s.patch.kind;
+  /** A step's specific wording, e.g. "Plant Ranarr seed". */
+  static String label(String phase, FarmingPlanner.Step at, Settings setup) {
+    String kind = at.patch.kind;
     Crop crop = setup.crop(kind);
     switch (phase) {
       case "Travel":
-        return s.travel.text;
+        return at.travel.text;
       case "Note carried":
         return "Note carried herbs at the leprechaun";
       case "Check health":
         return "Check the " + crop.name.toLowerCase(Locale.ROOT) + " tree's health";
       case "Harvest":
-        return kind.equals("herb")
-            ? "Pick the " + crop.fruit.toLowerCase(Locale.ROOT).replace("grimy ", "")
-            : kind.equals("celastrus") ? "Chop Celastrus bark" : "Pick 6 " + crop.fruit.toLowerCase(Locale.ROOT);
+        if (kind.equals("herb")) return "Pick the " + crop.fruit.toLowerCase(Locale.ROOT).replace("grimy ", "");
+        return kind.equals("celastrus") ? "Chop Celastrus bark" : "Pick 6 " + crop.fruit.toLowerCase(Locale.ROOT);
       case "Clear":
         return Targets.GARDENER_REMOVAL.contains(kind)
             ? "Pay the gardener to remove the tree"
@@ -166,7 +185,8 @@ final class Guidance {
       case "Compost":
         return setup.bucket ? "Use the bottomless bucket (ultracompost)" : "Apply ultracompost";
       default:
-        return "Note " + (kind.equals("herb") ? "herbs" : crop.fruit.toLowerCase(Locale.ROOT)) + " at the leprechaun";
+        String produce = kind.equals("herb") ? "herbs" : crop.fruit.toLowerCase(Locale.ROOT);
+        return "Note " + produce + " at the leprechaun";
     }
   }
 }

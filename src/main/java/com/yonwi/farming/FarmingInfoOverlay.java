@@ -1,18 +1,27 @@
 package com.yonwi.farming;
 
-import java.awt.*;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics2D;
+import java.util.ArrayList;
 import java.util.List;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.gameval.VarbitID;
-import net.runelite.client.ui.overlay.*;
-import net.runelite.client.ui.overlay.components.*;
+import net.runelite.client.ui.overlay.OverlayPanel;
+import net.runelite.client.ui.overlay.OverlayPosition;
+import net.runelite.client.ui.overlay.OverlayPriority;
+import net.runelite.client.ui.overlay.components.LineComponent;
+import net.runelite.client.ui.overlay.components.TitleComponent;
 
+/** The box in the top left: bank first, the next run, or the guided patch's steps in order. */
 final class FarmingInfoOverlay extends OverlayPanel {
-  private static final Color TITLE = new Color(188, 213, 191),
-      DONE = new Color(120, 130, 122),
-      WARN = new Color(255, 120, 90);
+  private static final Color TITLE = new Color(188, 213, 191);
+  private static final Color DONE = new Color(120, 130, 122);
+  private static final Color WARN = new Color(255, 120, 90);
+  private static final int TITLE_WIDTH = 30;
+  private static final int LINE_WIDTH = 33;
   private final FarmingPlugin plugin;
   private final FarmingConfig config;
   private final Client client;
@@ -64,15 +73,9 @@ final class FarmingInfoOverlay extends OverlayPanel {
         wrap("Switch to the standard spellbook first", WARN);
     }
     for (int i = 0; i < step.phases.size(); i++) {
-      Color c =
+      Color color =
           i < step.phaseIndex ? DONE : i == step.phaseIndex ? FarmingInventoryOverlay.TARGET : null;
-      String label =
-          plugin.patch().dead() && step.phases.get(i).equals("Harvest") && step.kind.equals("herb")
-              ? plugin.progress().resurrectNow() ? "Cast Resurrect Crops on the dead herbs" : "Clear the dead herbs"
-              : plugin.patch().dead() && step.phases.get(i).equals("Clear")
-                  ? "Clear the dead tree yourself (spade)"
-                  : step.labels.get(i);
-      wrap((i + 1) + ". " + label, c);
+      wrap((i + 1) + ". " + stepLabel(step, i), color);
     }
     if (plugin.harvest().openSackNow())
       wrap("Open your herb sack first, so the herbs go in it", FarmingInventoryOverlay.TARGET);
@@ -81,36 +84,44 @@ final class FarmingInfoOverlay extends OverlayPanel {
     return super.render(g);
   }
 
+  /** A step's wording, or what to do instead when the crop has died. */
+  private String stepLabel(Guidance step, int index) {
+    String phase = step.phases.get(index);
+    boolean dead = plugin.patch().dead();
+    if (dead && phase.equals("Harvest") && step.kind.equals("herb"))
+      return plugin.progress().resurrectNow() ? "Cast Resurrect Crops on the dead herbs" : "Clear the dead herbs";
+    if (dead && phase.equals("Clear")) return "Clear the dead tree yourself (spade)";
+    return step.labels.get(index);
+  }
+
   private void title(String text) {
-    StringBuilder b = new StringBuilder();
-    for (String word : text.split(" ")) {
-      if (b.length() + word.length() > 30) {
-        panelComponent.getChildren().add(TitleComponent.builder().text(b.toString()).color(TITLE).build());
-        b.setLength(0);
-      }
-      if (b.length() > 0) b.append(' ');
-      b.append(word);
-    }
-    if (b.length() > 0)
-      panelComponent.getChildren().add(TitleComponent.builder().text(b.toString()).color(TITLE).build());
+    for (String line : wrapWords(text, TITLE_WIDTH))
+      panelComponent.getChildren().add(TitleComponent.builder().text(line).color(TITLE).build());
   }
 
   private void line(String text, Color color) {
-    LineComponent.LineComponentBuilder b = LineComponent.builder().left(text);
-    if (color != null) b.leftColor(color);
-    panelComponent.getChildren().add(b.build());
+    LineComponent.LineComponentBuilder line = LineComponent.builder().left(text);
+    if (color != null) line.leftColor(color);
+    panelComponent.getChildren().add(line.build());
   }
 
   private void wrap(String text, Color color) {
-    StringBuilder b = new StringBuilder();
+    for (String line : wrapWords(text, LINE_WIDTH)) line(line, color);
+  }
+
+  /** Text split into lines of about {@code width} characters, at spaces. */
+  private static List<String> wrapWords(String text, int width) {
+    List<String> lines = new ArrayList<>();
+    StringBuilder line = new StringBuilder();
     for (String word : text.split(" ")) {
-      if (b.length() + word.length() > 33) {
-        line(b.toString(), color);
-        b.setLength(0);
+      if (line.length() + word.length() > width) {
+        lines.add(line.toString());
+        line.setLength(0);
       }
-      if (b.length() > 0) b.append(' ');
-      b.append(word);
+      if (line.length() > 0) line.append(' ');
+      line.append(word);
     }
-    if (b.length() > 0) line(b.toString(), color);
+    if (line.length() > 0) lines.add(line.toString());
+    return lines;
   }
 }

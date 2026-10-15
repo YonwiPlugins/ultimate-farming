@@ -3,7 +3,14 @@ package com.yonwi.farming;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import net.runelite.api.coords.WorldPoint;
 
 /**
@@ -50,8 +57,8 @@ final class TeleportData {
               "boat", "nearby", "inside", "outside", "nexus"));
 
   /** Lower case, letters, digits and single spaces only ("Xeric's Glade" → "xerics glade"). */
-  static String norm(String s) {
-    return s.toLowerCase(Locale.ROOT).replace("'", "").replace("’", "").replaceAll("[^a-z0-9]+", " ").trim();
+  static String norm(String text) {
+    return text.toLowerCase(Locale.ROOT).replace("'", "").replace("’", "").replaceAll("[^a-z0-9]+", " ").trim();
   }
 
   private static List<Landing> all() {
@@ -61,7 +68,7 @@ final class TeleportData {
     for (String file : FILES) {
       try (InputStream raw = TeleportData.class.getResourceAsStream(file)) {
         if (raw == null) continue;
-        String[] lines = new String(readAll(raw), StandardCharsets.UTF_8).split("\n");
+        String[] lines = new String(Tables.readAll(raw), StandardCharsets.UTF_8).split("\n");
         Map<String, Integer> column = new HashMap<>();
         for (String line : lines) {
           String trimmed = line.replace("\r", "");
@@ -73,14 +80,14 @@ final class TeleportData {
           }
           if (trimmed.isEmpty() || trimmed.startsWith("#") || column.isEmpty()) continue;
           String[] cells = trimmed.split("\t", -1);
-          String[] xyz = cell(cells, column, "Destination").split(" ");
+          String[] xyz = Tables.cell(cells, column, "Destination").split(" ");
           if (xyz.length < 3) continue;
           try {
             WorldPoint at =
                 new WorldPoint(
                     Integer.parseInt(xyz[0]), Integer.parseInt(xyz[1]), Integer.parseInt(xyz[2]));
             String name =
-                norm(cell(cells, column, "Display info") + " " + cell(cells, column, "menuOption menuTarget objectID"));
+                norm(Tables.cell(cells, column, "Display info") + " " + Tables.cell(cells, column, "menuOption menuTarget objectID"));
             // Deadman Mode's Trinket of fairies (straight to tool leprechauns) is never a route here.
             if (name.contains("trinket of fairies")) continue;
             loaded.add(new Landing(at, name));
@@ -94,18 +101,6 @@ final class TeleportData {
     }
     landings = loaded;
     return loaded;
-  }
-
-  private static String cell(String[] cells, Map<String, Integer> column, String name) {
-    Integer i = column.get(name);
-    return i == null || i >= cells.length ? "" : cells[i].trim();
-  }
-
-  private static byte[] readAll(InputStream in) throws IOException {
-    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-    byte[] buffer = new byte[8192];
-    for (int n; (n = in.read(buffer)) > 0; ) out.write(buffer, 0, n);
-    return out.toByteArray();
   }
 
   private static final Map<String, List<WorldPoint>> cache = new HashMap<>();
@@ -122,24 +117,24 @@ final class TeleportData {
     String method = norm(arrow < 0 ? travel : travel.substring(0, arrow)).replaceFirst("^cast ", "");
     String after = arrow < 0 ? "" : travel.substring(arrow + 1).split("[,;]| then ")[0];
     List<String> words = new ArrayList<>();
-    for (String w : norm(after).split(" ")) if (w.length() >= 4 && !FILLER.contains(w)) words.add(w);
+    for (String word : norm(after).split(" ")) if (word.length() >= 4 && !FILLER.contains(word)) words.add(word);
     String code = FarmingPlanner.fairyCode(travel);
     String spaced = code == null ? null : norm(String.join(" ", code.split("")));
     List<WorldPoint> found = new ArrayList<>();
     // First by the place it names (or its fairy ring code)…
-    for (Landing l : all()) {
+    for (Landing landing : all()) {
       boolean match = false;
-      if (spaced != null) match = (" " + l.name + " ").contains(" " + spaced + " ");
+      if (spaced != null) match = (" " + landing.name + " ").contains(" " + spaced + " ");
       else if (!words.isEmpty()) {
         match = true;
-        for (String w : words) match &= (" " + l.name + " ").contains(" " + w);
+        for (String word : words) match &= (" " + landing.name + " ").contains(" " + word);
       }
-      if (match) found.add(l.at);
+      if (match) found.add(landing.at);
     }
     // …or, when that names nothing, by the item or spell itself ("Ectophial", "Explorer's ring:
     // Teleport"). Never both: a ring of wealth to the Grand Exchange mustn't count for Falador.
     if (found.isEmpty() && spaced == null && method.length() >= 5 && !method.startsWith("house"))
-      for (Landing l : all()) if (l.name.startsWith(method)) found.add(l.at);
+      for (Landing landing : all()) if (landing.name.startsWith(method)) found.add(landing.at);
     cache.put(travel, found);
     return found;
   }

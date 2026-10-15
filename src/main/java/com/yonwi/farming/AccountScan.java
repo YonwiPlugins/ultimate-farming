@@ -1,7 +1,13 @@
 package com.yonwi.farming;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import net.runelite.api.Client;
+import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
@@ -128,76 +134,100 @@ final class AccountScan {
    * inventory, equipment and (when {@code bankSeen}) the bank.
    */
   static Result scan(Client client, Set<Integer> owned, boolean bankSeen) {
-    Result r = new Result();
-    r.bankSeen = bankSeen;
-    r.owned = owned;
-    for (Map.Entry<String, int[]> e : ITEMS.entrySet()) {
-      boolean has = false;
-      for (int id : e.getValue()) has |= owned.contains(id);
-      if (has) r.unlocks.put(e.getKey(), true);
-      else if (bankSeen) r.unlocks.put(e.getKey(), false);
-    }
-    quest(r, "herbPriest", client, Quest.PRIEST_IN_PERIL);
-    quest(r, "herbTroll", client, Quest.MY_ARMS_BIG_ADVENTURE);
-    quest(r, "herbWeiss", client, Quest.MAKING_FRIENDS_WITH_MY_ARM);
-    quest(r, "herbFortis", client, Quest.CHILDREN_OF_THE_SUN);
-    quest(r, "varlamore", client, Quest.CHILDREN_OF_THE_SUN);
-    quest(r, "gnome", client, Quest.TREE_GNOME_VILLAGE);
-    quest(r, "fossil", client, Quest.BONE_VOYAGE);
-    quest(r, "locus", client, Quest.THE_RIBBITING_TALE_OF_A_LILY_PAD_LABOUR_DISPUTE);
-    r.unlocks.put(
-        "summer",
-        finished(client, Quest.TROUBLED_TORTUGANS) && client.getRealSkillLevel(Skill.AGILITY) >= 50);
-    r.unlocks.put("herbHarmony", client.getVarbitValue(VarbitID.MORYTANIA_DIARY_ELITE_COMPLETE) == 1);
-    r.unlocks.put("faladorElite", client.getVarbitValue(VarbitID.FALADOR_DIARY_ELITE_COMPLETE) == 1);
-    r.magic = client.getRealSkillLevel(Skill.MAGIC);
-    // The Farming Guild's anima patch (varbit read only while in the guild, as RuneLite's Time
-    // Tracking does): 8–15 is a living Attas plant, which boosts herb yield until it dies.
-    net.runelite.api.Player player = client.getLocalPlayer();
-    if (player != null && GUILD_REGIONS.contains(player.getWorldLocation().getRegionID())) {
-      int anima = client.getVarbitValue(VarbitID.FARMING_TRANSMIT_M);
-      r.unlocks.put("attas", anima >= 8 && anima <= 15);
-    }
-    // Herb yield and disease (OSRS wiki herb calculator): Kourend easy protects Hosidius, Kourend
-    // hard adds 5% at Hosidius and the Farming Guild, Kandarin adds 5/10/15% at Catherby.
-    r.unlocks.put("kourendEasy", client.getVarbitValue(VarbitID.KOUREND_DIARY_EASY_COMPLETE) == 1);
-    r.unlocks.put("kourendHard", client.getVarbitValue(VarbitID.KOUREND_DIARY_HARD_COMPLETE) == 1);
-    r.unlocks.put("kandarinMedium", client.getVarbitValue(VarbitID.KANDARIN_DIARY_MEDIUM_COMPLETE) == 1);
-    r.unlocks.put("kandarinHard", client.getVarbitValue(VarbitID.KANDARIN_DIARY_HARD_COMPLETE) == 1);
-    r.unlocks.put("kandarinElite", client.getVarbitValue(VarbitID.KANDARIN_DIARY_ELITE_COMPLETE) == 1);
+    Result result = new Result();
+    result.bankSeen = bankSeen;
+    result.owned = owned;
+    addOwnedItems(result, owned, bankSeen);
+    addQuests(result, client);
+    result.unlocks.put("herbHarmony", diary(client, VarbitID.MORYTANIA_DIARY_ELITE_COMPLETE));
+    result.unlocks.put("faladorElite", diary(client, VarbitID.FALADOR_DIARY_ELITE_COMPLETE));
+    result.magic = client.getRealSkillLevel(Skill.MAGIC);
+    addAttas(result, client);
+    addYieldDiaries(result, client);
     // The Lumbridge & Draynor elite diary lets fairy rings work without a staff.
-    r.unlocks.put(
-        "staffless", client.getVarbitValue(VarbitID.LUMBRIDGE_DIARY_ELITE_COMPLETE) == 1);
+    result.unlocks.put("staffless", diary(client, VarbitID.LUMBRIDGE_DIARY_ELITE_COMPLETE));
     QuestState fairy = Quest.FAIRYTALE_II__CURE_A_QUEEN.getState(client);
-    if (fairy == QuestState.FINISHED) r.unlocks.put("fairy", true);
-    else if (fairy == QuestState.NOT_STARTED) r.unlocks.put("fairy", false);
+    if (fairy == QuestState.FINISHED) result.unlocks.put("fairy", true);
+    else if (fairy == QuestState.NOT_STARTED) result.unlocks.put("fairy", false);
     // Owning the item is not enough when the destination itself is locked.
-    if (!finished(client, Quest.BONE_VOYAGE)) r.unlocks.put("digsite", false);
-    if (!finished(client, Quest.MOURNINGS_END_PART_I)) r.unlocks.put("lletya", false);
-    if (!finished(client, Quest.GHOSTS_AHOY)) r.unlocks.put("herbEcto", false);
-    switch (client.getVarbitValue(VarbitID.POH_HOUSE_LOCATION)) {
-      case 0:
-        break;
-      case 1:
-        r.house = "rimmington";
-        break;
-      case 2:
-        r.house = "taverley";
-        break;
-      case 5:
-        r.house = "brimhaven";
-        break;
-      default:
-        r.house = "other";
+    if (!finished(client, Quest.BONE_VOYAGE)) result.unlocks.put("digsite", false);
+    if (!finished(client, Quest.MOURNINGS_END_PART_I)) result.unlocks.put("lletya", false);
+    if (!finished(client, Quest.GHOSTS_AHOY)) result.unlocks.put("herbEcto", false);
+    result.house = house(client.getVarbitValue(VarbitID.POH_HOUSE_LOCATION));
+    return result;
+  }
+
+  /** Unlocks that come from owning an item: known when owned, or not owned once the bank's been seen. */
+  private static void addOwnedItems(Result result, Set<Integer> owned, boolean bankSeen) {
+    for (Map.Entry<String, int[]> item : ITEMS.entrySet()) {
+      boolean has = false;
+      for (int id : item.getValue()) has |= owned.contains(id);
+      if (has) result.unlocks.put(item.getKey(), true);
+      else if (bankSeen) result.unlocks.put(item.getKey(), false);
     }
-    return r;
+  }
+
+  private static void addQuests(Result result, Client client) {
+    quest(result, "herbPriest", client, Quest.PRIEST_IN_PERIL);
+    quest(result, "herbTroll", client, Quest.MY_ARMS_BIG_ADVENTURE);
+    quest(result, "herbWeiss", client, Quest.MAKING_FRIENDS_WITH_MY_ARM);
+    quest(result, "herbFortis", client, Quest.CHILDREN_OF_THE_SUN);
+    quest(result, "varlamore", client, Quest.CHILDREN_OF_THE_SUN);
+    quest(result, "gnome", client, Quest.TREE_GNOME_VILLAGE);
+    quest(result, "fossil", client, Quest.BONE_VOYAGE);
+    quest(result, "locus", client, Quest.THE_RIBBITING_TALE_OF_A_LILY_PAD_LABOUR_DISPUTE);
+    result.unlocks.put(
+        "summer", finished(client, Quest.TROUBLED_TORTUGANS) && client.getRealSkillLevel(Skill.AGILITY) >= 50);
+  }
+
+  /**
+   * The Farming Guild's anima patch (varbit read only while in the guild, as RuneLite's Time
+   * Tracking does): 8–15 is a living Attas plant, which boosts herb yield until it dies.
+   */
+  private static void addAttas(Result result, Client client) {
+    Player player = client.getLocalPlayer();
+    if (player == null || !GUILD_REGIONS.contains(player.getWorldLocation().getRegionID())) return;
+    int anima = client.getVarbitValue(VarbitID.FARMING_TRANSMIT_M);
+    result.unlocks.put("attas", anima >= 8 && anima <= 15);
+  }
+
+  /**
+   * Herb yield and disease (OSRS wiki herb calculator): Kourend easy protects Hosidius, Kourend
+   * hard adds 5% at Hosidius and the Farming Guild, Kandarin adds 5/10/15% at Catherby.
+   */
+  private static void addYieldDiaries(Result result, Client client) {
+    result.unlocks.put("kourendEasy", diary(client, VarbitID.KOUREND_DIARY_EASY_COMPLETE));
+    result.unlocks.put("kourendHard", diary(client, VarbitID.KOUREND_DIARY_HARD_COMPLETE));
+    result.unlocks.put("kandarinMedium", diary(client, VarbitID.KANDARIN_DIARY_MEDIUM_COMPLETE));
+    result.unlocks.put("kandarinHard", diary(client, VarbitID.KANDARIN_DIARY_HARD_COMPLETE));
+    result.unlocks.put("kandarinElite", diary(client, VarbitID.KANDARIN_DIARY_ELITE_COMPLETE));
+  }
+
+  /** Where your house portal is, from its location varbit; null if unknown. */
+  private static String house(int location) {
+    switch (location) {
+      case 0:
+        return null;
+      case 1:
+        return "rimmington";
+      case 2:
+        return "taverley";
+      case 5:
+        return "brimhaven";
+      default:
+        return "other";
+    }
+  }
+
+  private static boolean diary(Client client, int completeVarbit) {
+    return client.getVarbitValue(completeVarbit) == 1;
   }
 
   private static boolean finished(Client client, Quest quest) {
     return quest.getState(client) == QuestState.FINISHED;
   }
 
-  private static void quest(Result r, String key, Client client, Quest quest) {
-    r.unlocks.put(key, finished(client, quest));
+  private static void quest(Result result, String key, Client client, Quest quest) {
+    result.unlocks.put(key, finished(client, quest));
   }
 }

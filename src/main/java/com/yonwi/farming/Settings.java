@@ -1,7 +1,14 @@
 package com.yonwi.farming;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+/** The player's choices and unlocks, saved as JSON in the RuneLite profile. Field names are the saved keys. */
 final class Settings {
   /** No longer used: expected herbs come from the wiki formula. Kept so old saves still load. */
   double herbYield = 8;
@@ -28,8 +35,13 @@ final class Settings {
     return false;
   }
   boolean secateurs = true;
-  int level = 1, bark = 3;
-  boolean protect = true, harvest = true, farmer = true, bucket = true;
+  int level = 1;
+  int bark = 3;
+  /** Old all-or-nothing switches, kept so old saves load; per crop now (unprotected, unharvested). */
+  boolean protect = true;
+  boolean harvest = true;
+  boolean farmer = true;
+  boolean bucket = true;
   /** Start the run timer automatically from the first finished patch or picked herb. */
   boolean autoStart = true;
   /** Bring a stamina potion on longer runs. */
@@ -48,7 +60,8 @@ final class Settings {
   /** Patch IDs in the player's chosen order; empty uses the suggested route. */
   List<String> order = new ArrayList<>();
   /** Run types where gardeners aren't paid (compost instead) or produce isn't harvested. */
-  Set<String> unprotected = new LinkedHashSet<>(), unharvested = new LinkedHashSet<>();
+  Set<String> unprotected = new LinkedHashSet<>();
+  Set<String> unharvested = new LinkedHashSet<>();
 
   /** Pay the gardener for this type of tree. Herbs have no protection payment. */
   boolean protects(String kind) {
@@ -66,42 +79,43 @@ final class Settings {
    * Patches that can't get diseased, so need neither payment nor compost. Per the OSRS wiki
    * (Disease (Farming)), the Falador elite diary protects the Falador Park tree.
    */
-  boolean diseaseFree(Patch p) {
-    return p.id.equals("falador") && has("faladorElite");
+  boolean diseaseFree(Patch patch) {
+    return patch.id.equals("falador") && has("faladorElite");
   }
 
   /** Pay this patch's gardener. */
-  boolean pays(Patch p) {
+  boolean pays(Patch patch) {
     // Only where there's a gardener to pay (Summer Shore's Calquat patch has none).
-    return protects(p.kind) && !diseaseFree(p) && TargetData.GARDENERS.containsKey(p.id);
+    return protects(patch.kind) && !diseaseFree(patch) && TargetData.GARDENERS.containsKey(patch.id);
   }
 
   /** Use compost here: herbs always, Celastrus when harvested; trees when unprotected and not disease-free. */
-  boolean composts(Patch p) {
+  boolean composts(Patch patch) {
     // Herbs and Celastrus: compost raises the yield (wiki: "The yield of celastrus bark can be
     // improved by composting"). Other trees: it only fights disease, so it's pointless when the
     // gardener protects the tree.
     // Celastrus only when its bark is harvested (or the gardener isn't paid to protect it).
-    return p.kind.equals("herb")
-        || p.kind.equals("celastrus") && harvests("celastrus")
-        || !pays(p) && !diseaseFree(p);
+    return patch.kind.equals("herb")
+        || patch.kind.equals("celastrus") && harvests("celastrus")
+        || !pays(patch) && !diseaseFree(patch);
   }
 
   boolean has(String key) {
     return unlocks.contains(key);
   }
 
+  /** You can get into your house (Construction cape, rune pouch spell, or house features). */
   boolean poh() {
     return has("cape") || has("pouch") || has("jewellery") || has("spirit");
   }
 
+  /** The crop chosen for a run type, or the best one your level allows; null below them all. */
   Crop crop(String kind) {
-    List<Crop> list = FarmingData.CROPS.get(kind);
     Crop chosen = null;
-    for (Crop c : list)
-      if (c.level <= level) {
-        chosen = c;
-        if (c.name.equals(crops.get(kind))) return c;
+    for (Crop crop : FarmingData.CROPS.get(kind))
+      if (crop.level <= level) {
+        chosen = crop;
+        if (crop.name.equals(crops.get(kind))) return crop;
       }
     return chosen;
   }
