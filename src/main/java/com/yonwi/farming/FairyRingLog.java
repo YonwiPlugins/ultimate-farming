@@ -27,18 +27,28 @@ final class FairyRingLog {
     Widget contents = client.getWidget(InterfaceID.FairyringsLog.CONTENTS);
     if (code == null || contents == null || contents.isHidden()) return;
     List<String> seen = new ArrayList<>();
-    Widget entry = null;
-    Widget faves = client.getWidget(InterfaceID.FairyringsLog.FAVES);
-    if (faves != null && faves.getStaticChildren() != null)
-      entry = find(faves.getStaticChildren(), code, seen);
-    if (entry == null && contents.getDynamicChildren() != null)
-      entry = find(contents.getDynamicChildren(), code, seen);
+    Widget entry = entryFor(client, code, seen);
     plugin.debug().logOnce("fairy log: " + code + (entry == null ? " not found in " : " found in ") + seen);
     if (entry == null) return;
     entry.setTextColor(GREEN);
     String text = String.valueOf(entry.getText());
     if (!text.contains(LOG_TAG)) entry.setText(LOG_TAG + text);
     scrollTo(contents, entry);
+  }
+
+  /**
+   * This code's entry in the open travel log (favourites first), or null. Notes the text of every
+   * entry looked at in seen.
+   */
+  static Widget entryFor(Client client, String code, List<String> seen) {
+    Widget entry = null;
+    Widget faves = client.getWidget(InterfaceID.FairyringsLog.FAVES);
+    if (faves != null && faves.getStaticChildren() != null)
+      entry = find(faves.getStaticChildren(), code, seen);
+    Widget contents = client.getWidget(InterfaceID.FairyringsLog.CONTENTS);
+    if (entry == null && contents != null && contents.getDynamicChildren() != null)
+      entry = find(contents.getDynamicChildren(), code, seen);
+    return entry;
   }
 
   /** The first entry for this code, noting the text of every entry looked at. */

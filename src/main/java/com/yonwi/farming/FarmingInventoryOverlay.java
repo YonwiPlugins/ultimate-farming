@@ -495,22 +495,17 @@ final class FarmingInventoryOverlay extends Overlay {
   }
 
   /**
-   * In the fairy ring's travel log (the list beside the dials), highlights this route's code.
-   * Each code has its own widget, named after it (e.g. FairyringsLog.ALQ).
+   * In the fairy ring's travel log (the list beside the dials), highlights this route's code,
+   * found by its text the same way FairyRingLog finds it.
    */
   private void markFairyLog(Graphics2D g, String travel) {
     String code = FarmingPlanner.fairyCode(travel);
     if (code == null) return;
     Widget log = client.getWidget(InterfaceID.FairyringsLog.UNIVERSE);
     if (log == null || log.isHidden()) return;
-    try {
-      int id = InterfaceID.FairyringsLog.class.getField(code).getInt(null);
-      Widget entry = client.getWidget(id);
-      if (entry == null || entry.isHidden()) return;
-      markVisible(g, entry, ITEM);
-    } catch (ReflectiveOperationException ignored) {
-      // No log entry for this code.
-    }
+    Widget entry = FairyRingLog.entryFor(client, code, new ArrayList<>());
+    if (entry == null || entry.isHidden()) return;
+    markVisible(g, entry, ITEM);
   }
 
   /** A spirit tree, nexus or jewellery box list, quetzal map or fairy ring dial is showing. */
