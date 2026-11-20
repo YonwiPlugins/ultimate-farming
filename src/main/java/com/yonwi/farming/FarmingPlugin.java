@@ -363,8 +363,9 @@ public class FarmingPlugin extends Plugin {
 
   @Subscribe
   public void onConfigChanged(ConfigChanged e) {
-    if (!FarmingPanel.GROUP.equals(e.getGroup()) || !"netTotals".equals(e.getKey())) return;
-    toPanel(FarmingPanel::refreshBanner);
+    if (!FarmingPanel.GROUP.equals(e.getGroup())) return;
+    if ("netTotals".equals(e.getKey())) toPanel(FarmingPanel::refreshBanner);
+    if ("attasWarning".equals(e.getKey())) toPanel(FarmingPanel::refreshRun);
   }
 
   @Subscribe
@@ -463,6 +464,8 @@ public class FarmingPlugin extends Plugin {
       spellbook.spellbookChanged();
     }
     if (KitTracker.isPouchVarbit(e.getVarbitId())) account.scanSoon();
+    // The anima patch changed (planted, grown or died) while you're at the guild.
+    if (e.getVarbitId() == VarbitID.FARMING_TRANSMIT_M) account.scanSoon();
   }
 
   @Subscribe

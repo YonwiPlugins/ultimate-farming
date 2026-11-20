@@ -48,6 +48,8 @@ final class RunTab {
   private boolean reordering;
   /** The patch list is shown (it starts collapsed each session). */
   private boolean patchesOpen;
+  /** "Don't warn this run" was pressed on the Attas warning; cleared once a run starts. */
+  private boolean attasDismissed;
 
   RunTab(FarmingPanel panel, ItemManager items, ClientThread clientThread) {
     this.panel = panel;
@@ -65,9 +67,11 @@ final class RunTab {
 
   void render() {
     page.removeAll();
+    if (panel.runStarted()) attasDismissed = false;
     // Between runs: choose the run here, then "Prepare run" at the bottom.
     if (!panel.prepared() && !panel.runStarted() && !reordering) {
       addRunChoices();
+      addAttasWarning();
       page.add(Box.createRigidArea(new Dimension(0, 4)));
       page.add(panel.guideCard().card());
       finish();
@@ -250,6 +254,48 @@ final class RunTab {
       page.add(over);
     }
     addPatchChoices();
+  }
+
+  /**
+   * Just above "Prepare run": no living Attas was seen at the Farming Guild, so herbs miss its 5%.
+   * It never blocks the run, and can be hidden until the next one.
+   */
+  private void addAttasWarning() {
+    Settings settings = panel.settings();
+    int level = panel.clientLevel() > 0 ? panel.clientLevel() : settings.level;
+    if (attasDismissed || !panel.attasWarningOn() || !settings.warnNoAttas(panel.route(), level)) return;
+    JPanel card = Style.card();
+    card.setBorder(
+        BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(PanelWidgets.WARN), new EmptyBorder(7, 7, 7, 7)));
+    card.setToolTipText("As of your last visit: an Attas that died since then won't show here");
+    JLabel title = label("No Attas planted");
+    title.setFont(Style.bold());
+    title.setForeground(PanelWidgets.WARN);
+    card.add(title);
+    card.add(Box.createVerticalStrut(3));
+    card.add(
+        muted(
+            "+5% herbs if you plant one at the Farming Guild first. Last checked "
+                + daysAgo(settings.attasCheckedAt) + "."));
+    card.add(Box.createVerticalStrut(6));
+    JButton hide = new JButton("Don't warn this run");
+    hide.setFont(Style.small());
+    hide.setFocusPainted(false);
+    hide.setAlignmentX(Component.LEFT_ALIGNMENT);
+    hide.addActionListener(
+        e -> {
+          attasDismissed = true;
+          render();
+        });
+    card.add(hide);
+    addCard(page, card);
+  }
+
+  /** "today", "yesterday" or "3 days ago". */
+  private static String daysAgo(long at) {
+    long days = Math.max(0, (System.currentTimeMillis() - at) / 86_400_000L);
+    return days == 0 ? "today" : days == 1 ? "yesterday" : days + " days ago";
   }
 
   /** One card per run type: tick to include it, then pick the crop from its drop-down. */

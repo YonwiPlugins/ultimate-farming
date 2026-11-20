@@ -35,6 +35,15 @@ public interface FarmingConfig extends Config {
   }
 
   @ConfigItem(
+      keyName = "attasWarning",
+      name = "Warn if no Attas",
+      description = "Before a herb run, warn when your last visit to the Farming Guild found no Attas plant",
+      position = 3)
+  default boolean attasWarning() {
+    return true;
+  }
+
+  @ConfigItem(
       keyName = "recordsShown",
       name = "Records rows shown",
       description = "Runs listed per Records table before \"Show more\"",

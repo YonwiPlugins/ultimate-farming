@@ -104,6 +104,20 @@ final class Settings {
     return unlocks.contains(key);
   }
 
+  /** When the Farming Guild's anima patch was last read (epoch millis); null if never. */
+  Long attasCheckedAt;
+
+  /**
+   * Warn before the run that there's no Attas plant: herbs in the run, 76+ Farming (the anima
+   * patch needs it), and the anima patch last seen without a living Attas. Quiet until it's been
+   * seen once, and when Attas is ticked in Setup.
+   */
+  boolean warnNoAttas(List<FarmingPlanner.Step> route, int farmingLevel) {
+    if (has("attas") || attasCheckedAt == null || farmingLevel < 76) return false;
+    for (FarmingPlanner.Step step : route) if (step.patch.kind.equals("herb")) return true;
+    return false;
+  }
+
   /** You can get into your house (Construction cape, rune pouch spell, or house features). */
   boolean poh() {
     return has("cape") || has("pouch") || has("jewellery") || has("spirit");

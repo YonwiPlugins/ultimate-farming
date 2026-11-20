@@ -521,6 +521,13 @@ final class FarmingPanel extends PluginPanel {
     for (Map.Entry<String, Boolean> unlock : result.unlocks.entrySet())
       changed |=
           unlock.getValue() ? settings.unlocks.add(unlock.getKey()) : settings.unlocks.remove(unlock.getKey());
+    // The anima patch was read (only happens in the Farming Guild): note when, for the Attas
+    // warning. Saved at most hourly while standing there, not on every scan.
+    if (result.unlocks.containsKey("attas")) {
+      long now = System.currentTimeMillis();
+      if (settings.attasCheckedAt == null || now - settings.attasCheckedAt > 3_600_000L) changed = true;
+      settings.attasCheckedAt = now;
+    }
     if (result.house != null && !result.house.equals(settings.house)) {
       settings.house = result.house;
       changed = true;
@@ -763,6 +770,15 @@ final class FarmingPanel extends PluginPanel {
   /** Redraws the banner, e.g. after Net XP/GP is switched on or off. */
   void refreshBanner() {
     updateYield();
+  }
+
+  void refreshRun() {
+    runTab.render();
+  }
+
+  /** The "Warn if no Attas" setting (on unless unticked). */
+  boolean attasWarningOn() {
+    return !"false".equals(config.getConfiguration(GROUP, "attasWarning"));
   }
 
   private String yieldText(String xp, String gp) {
