@@ -13,12 +13,6 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.awt.Image;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -45,10 +39,8 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
-import net.runelite.client.RuneLite;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
-import net.runelite.client.config.ConfigProfile;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.PluginPanel;
 
@@ -422,7 +414,6 @@ final class FarmingPanel extends PluginPanel {
       elapsed = Math.max(0, session.elapsed);
       if (session.signature == null) session = null;
     }
-    importRestore();
   }
 
   /**
@@ -443,50 +434,6 @@ final class FarmingPanel extends PluginPanel {
     loadState();
     rebuild();
     updateTimer();
-  }
-
-  /** A one-off import of recovered records and route order, for a named RuneLite profile. */
-  private static final class Restore {
-    String profile;
-    List<RunRecord> records;
-    List<String> order;
-  }
-
-  /**
-   * Merges .runelite/ultimate-farming/restore.json into this profile's records (skipping runs it
-   * already has) and restores the route order if none is set, then renames the file so it only
-   * happens once. Ignored when it names a different RuneLite profile.
-   */
-  private void importRestore() {
-    File file = new File(RuneLite.RUNELITE_DIR, "ultimate-farming/restore.json");
-    if (!file.isFile()) return;
-    ConfigProfile profile = config.getProfile();
-    boolean imported = false;
-    try (Reader in = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
-      Restore restore = gson.fromJson(in, Restore.class);
-      if (restore != null
-          && restore.records != null
-          && profile != null
-          && profile.getName().equals(restore.profile)) {
-        mergeRestored(restore);
-        imported = true;
-      }
-    } catch (IOException | RuntimeException ex) {
-      return; // unreadable: leave the file for another try
-    }
-    if (imported) file.renameTo(new File(file.getParentFile(), "restore.done.json"));
-  }
-
-  private void mergeRestored(Restore restore) {
-    Set<String> dates = new HashSet<>();
-    for (RunRecord record : records) dates.add(record.date);
-    for (RunRecord record : restore.records)
-      if (record != null && record.signature != null && record.milliseconds > 0 && dates.add(record.date))
-        records.add(record);
-    records.sort(Comparator.comparing(record -> record.date == null ? "" : record.date));
-    if (settings.order.isEmpty() && restore.order != null) settings.order = new ArrayList<>(restore.order);
-    saveRecords();
-    config.setConfiguration(GROUP, "settings", gson.toJson(settings));
   }
 
   /** Fills in anything missing or out of range in saved settings, and upgrades old ones. */
