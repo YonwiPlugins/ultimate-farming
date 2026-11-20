@@ -42,6 +42,31 @@ final class Guidance {
   String produce = "";
   /** Dead herbs here should get Resurrect Crops before anything else. */
   boolean resurrect;
+  /** What to do with diseased herbs: "leprechaun", "carry" or "dig" (Settings.diseasedHerbs). */
+  String diseasedHerbs = "dig";
+
+  /**
+   * At diseased herbs: "cure" (use the plant cure on them), "fetch" (take one from the tool
+   * leprechaun first) or "dig" (dig them up, then plant as normal). Carrying none falls back to
+   * digging; digging is what's chosen, even with a cure in the bag.
+   */
+  static String diseasedAction(String choice, boolean holdingCure) {
+    if ("dig".equals(choice)) return "dig";
+    if (holdingCure) return "cure";
+    return "leprechaun".equals(choice) ? "fetch" : "dig";
+  }
+
+  /** The guide line for diseased herbs. */
+  static String diseasedLabel(String action) {
+    switch (action) {
+      case "cure":
+        return "Use the plant cure on the diseased herbs";
+      case "fetch":
+        return "Take a plant cure from the tool leprechaun";
+      default:
+        return "Dig up the diseased herbs (spade)";
+    }
+  }
   /** The patch after this one and how to get there, for the "Next up" line; null at the end. */
   String nextDestination;
   String nextTravel;

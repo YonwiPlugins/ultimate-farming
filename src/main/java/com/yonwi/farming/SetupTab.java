@@ -320,9 +320,38 @@ final class SetupTab {
       String why = whyNoResurrect(settings, route);
       if (!why.isEmpty()) options.add(muted(why));
     }
+    addDiseasedChoice(options);
     options.add(
         iconCheck("Stamina potion (runs of 6+ patches)", "Stamina potion(4)", settings.stamina, on -> settings.stamina = on));
     return options;
+  }
+
+  /** Settings.diseasedHerbs values and how they read in the drop-down. */
+  private static final String[][] DISEASED_CHOICES = {
+    {"dig", "Dig up and replant"},
+    {"leprechaun", "Plant cures stored in leprechaun"},
+    {"carry", "Carry a plant cure"}
+  };
+
+  /** "Diseased herbs": dig them up, or cure them with a plant cure from the leprechaun or the kit. */
+  private void addDiseasedChoice(JPanel card) {
+    Settings settings = panel.settings();
+    card.add(Box.createVerticalStrut(6));
+    card.add(muted("Diseased herbs"));
+    String[] labels = new String[DISEASED_CHOICES.length];
+    int selected = 0;
+    for (int i = 0; i < DISEASED_CHOICES.length; i++) {
+      labels[i] = DISEASED_CHOICES[i][1];
+      if (DISEASED_CHOICES[i][0].equals(settings.diseasedHerbs)) selected = i;
+    }
+    JComboBox<String> choice = new JComboBox<>(labels);
+    Style.combo(choice);
+    choice.setSelectedIndex(selected);
+    choice.setEnabled(!panel.runStarted());
+    choice.setToolTipText("Cured herbs keep growing and are ready next run; dug-up ones are replanted now");
+    choice.addActionListener(
+        e -> panel.change(() -> settings.diseasedHerbs = DISEASED_CHOICES[choice.getSelectedIndex()][0]));
+    card.add(choice);
   }
 
   private static String whyNoResurrect(Settings settings, List<FarmingPlanner.Step> route) {

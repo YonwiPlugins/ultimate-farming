@@ -95,9 +95,13 @@ final class StepProgress {
     loadedAtTick = client.getTickCount();
   }
 
+  /** The herb patch last seen diseased, until it's cured or dug up. */
+  private String diseasedPatch;
+
   /** Nothing guided: a new run may try Resurrect Crops again everywhere. */
   void clearRun() {
     resurrectTried.clear();
+    diseasedPatch = null;
   }
 
   String workedPatch() {
@@ -229,9 +233,11 @@ final class StepProgress {
     if (patch.getWorldLocation().distanceTo2D(here) > PATCH_READ_TILES) return;
     ObjectComposition definition = plugin.scene().definition(patch);
     if (definition == null || definition.getName() == null) return;
-    PatchLook look = new PatchLook(definition);
+    PatchLook look = new PatchLook(definition.getName(), definition.getActions());
     plugin.patch().setDead(look.dead);
+    plugin.patch().setDiseased(look.diseased);
     if (checkResurrected(step, look)) return;
+    if (checkCured(step, look)) return;
     boolean done = stepDone(step.phase, look);
     // Only trust a reading that holds for two ticks: just after a teleport the scene is still
     // loading and the wrong object, or a half-loaded one, can briefly be found.
@@ -247,7 +253,7 @@ final class StepProgress {
   }
 
   /** What a patch shows, from its name and right-click options. */
-  private static final class PatchLook {
+  static final class PatchLook {
     /** Empty and weedy patches are named "... patch"; grown, growing and dead crops are not. */
     final boolean empty;
     final boolean pick;
@@ -255,13 +261,15 @@ final class StepProgress {
     /** Dead crops (herbs or trees) have to be cleared by you; no gardener will do it. */
     final boolean clearDead;
     final boolean dead;
+    /** Diseased but alive ("Diseased herbs"): cure it or dig it up; it doesn't grow meanwhile. */
+    final boolean diseased;
 
-    PatchLook(ObjectComposition definition) {
-      String name = definition.getName().toLowerCase(Locale.ROOT);
+    PatchLook(String patchName, String[] actions) {
+      String name = patchName.toLowerCase(Locale.ROOT);
       boolean canPick = false;
       boolean canCheck = false;
       boolean canClear = false;
-      for (String action : definition.getActions())
+      for (String action : actions)
         if (action != null) {
           String option = action.toLowerCase(Locale.ROOT);
           canPick |= option.startsWith("pick") || option.startsWith("harvest");
@@ -274,7 +282,34 @@ final class StepProgress {
       // Dead only by name ("Dead herbs", "Dead … tree"): a healthy grown Calquat also offers Clear.
       dead = name.contains("dead");
       clearDead = canClear && dead;
+      diseased = name.contains("diseased") && !dead;
     }
+  }
+
+  /**
+   * Diseased herbs at the guided patch: once they're growing again (cured), the patch is finished
+   * for this run like a Resurrect Crops success; dug up (empty), the normal plant steps follow.
+   */
+  private boolean checkCured(Guidance step, PatchLook look) {
+    if (!step.kind.equals("herb")) return false;
+    if (look.diseased) {
+      if (!step.patchId.equals(diseasedPatch)) plugin.debug().event("diseased herbs: " + step.patchId);
+      diseasedPatch = step.patchId;
+      return false;
+    }
+    if (!step.patchId.equals(diseasedPatch)) return false;
+    if (look.empty || look.dead) {
+      diseasedPatch = null;
+      return false;
+    }
+    if (!look.pick && !look.check) {
+      plugin.debug().event("cured: " + step.patchId);
+      diseasedPatch = null;
+      String id = step.patchId;
+      plugin.toPanel(panel -> panel.resurrected(id));
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -293,11 +328,12 @@ final class StepProgress {
     return false;
   }
 
-  private static boolean stepDone(String phase, PatchLook look) {
+  static boolean stepDone(String phase, PatchLook look) {
     switch (phase) {
       case "Harvest":
-        // Dead herbs must be cleared first; that is shown as "Clear the dead herbs".
-        return !look.pick && !look.clearDead;
+        // Dead herbs must be cleared first; that is shown as "Clear the dead herbs". Diseased
+        // herbs must be cured or dug up: they're not picked, and they're not a new crop either.
+        return !look.pick && !look.clearDead && !look.diseased;
       case "Check health":
         // No Check-health left: checked, or nothing to check (empty, growing or dead). Any tree
         // counts, not just the crop being planted, so switching crop doesn't hold the guide here.
@@ -306,7 +342,7 @@ final class StepProgress {
         return look.empty;
       case "Plant":
         // A crop is now growing: not empty, nothing to pick, check or clear.
-        return !look.empty && !look.pick && !look.check && !look.clearDead;
+        return !look.empty && !look.pick && !look.check && !look.clearDead && !look.diseased;
       default:
         return false;
     }

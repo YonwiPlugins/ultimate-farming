@@ -18,6 +18,18 @@ final class Settings {
   boolean resurrect = true;
   /** Magic level, read from the account; Resurrect Crops needs 78. */
   int magic;
+  /**
+   * Diseased herbs: "leprechaun" (take a plant cure stored with the tool leprechaun), "carry"
+   * (bring one in the kit) or "dig" (dig them up and replant).
+   */
+  String diseasedHerbs = "dig";
+
+  /** A plant cure comes along in the kit: chosen, and herbs in the run. */
+  boolean carriesCure(List<FarmingPlanner.Step> route) {
+    if (!"carry".equals(diseasedHerbs)) return false;
+    for (FarmingPlanner.Step step : route) if (step.patch.kind.equals("herb")) return true;
+    return false;
+  }
 
   /** Teleport spells the rune pouch casts on this route? (They need the standard spellbook.) */
   static boolean usesSpells(List<FarmingPlanner.Step> route) {

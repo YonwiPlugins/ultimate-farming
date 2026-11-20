@@ -23,6 +23,7 @@ final class GuidedPatch {
   private volatile boolean needsRake;
   /** The guided patch's crop has died and needs clearing before anything else. */
   private volatile boolean dead;
+  private volatile boolean diseased;
 
   TileObject object() {
     return object;
@@ -45,6 +46,22 @@ final class GuidedPatch {
     this.dead = dead;
   }
 
+  /** The guided patch's crop is diseased (alive, but needs curing or digging up). */
+  boolean diseased() {
+    return diseased;
+  }
+
+  void setDiseased(boolean diseased) {
+    this.diseased = diseased;
+  }
+
+  /** At diseased herbs: "cure", "fetch" or "dig" (see Guidance.diseasedAction); null otherwise. */
+  String diseasedAction(Guidance step) {
+    if (step == null || !diseased || !step.kind.equals("herb") || !step.phase.equals("Harvest")) return null;
+    boolean holding = plugin.account().holdingUnnoted(FarmingData.itemIds("Plant cure"));
+    return Guidance.diseasedAction(step.diseasedHerbs, holding);
+  }
+
   /** Finds the stage's patch every tick, so step completion can be read whatever is highlighted. */
   void find(Guidance step, Player player) {
     object = null;
@@ -56,7 +73,10 @@ final class GuidedPatch {
     if (patch == null && !step.kind.equals("herb") && nearbyGardener != null)
       patch = findPatchByGardener(step, nearbyGardener);
     object = patch;
-    if (patch == null) dead = false;
+    if (patch == null) {
+      dead = false;
+      diseased = false;
+    }
     gardener = nearbyGardener;
     needsRake = plugin.scene().offers(patch, "rake");
   }

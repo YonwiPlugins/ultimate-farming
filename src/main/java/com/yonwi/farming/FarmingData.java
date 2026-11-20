@@ -97,6 +97,7 @@ final class FarmingData {
             new Crop("Rosewood", 92, "Rosewood sapling", 252, 23100, 0, "", "Dragonfruit", 8)));
     IDS.put("Spade", new int[] {ItemID.SPADE});
     IDS.put("Seed dibber", new int[] {ItemID.DIBBER});
+    IDS.put("Plant cure", new int[] {ItemID.PLANT_CURE});
     // Any usable axe counts, from bronze to infernal (charged or not) and felling axes.
     IDS.put(
         "Axe",

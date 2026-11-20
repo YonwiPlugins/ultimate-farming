@@ -73,6 +73,8 @@ final class DebugTools {
               + (client.getTopLevelWorldView().isInstance() ? " (instance)" : ""));
     }
     addPatchLines(lines);
+    if (plugin.patch().diseased())
+      lines.add("diseased · " + (step == null ? "-" : step.diseasedHerbs + " → " + plugin.patch().diseasedAction(step)));
     NPC gardener = plugin.patch().gardener();
     boolean leprechaunLit = !plugin.targets().npcs().isEmpty() || !plugin.targets().nextNpcs().isEmpty();
     lines.add("gardener " + (gardener == null ? "none" : gardener.getId()) + " · lep " + (leprechaunLit ? "lit" : "-"));

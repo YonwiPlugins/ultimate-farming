@@ -884,6 +884,7 @@ final class FarmingPanel extends PluginPanel {
       guide.prevKind = route.get(guideIndex - 1).patch.kind;
     }
     guide.resurrect = settings.resurrects(route);
+    guide.diseasedHerbs = settings.diseasedHerbs;
     for (int next = guideIndex + 1; next < route.size(); next++)
       if (!settings.completed.contains(route.get(next).patch.id)) {
         setNextPatch(guide, route.get(next), cape);

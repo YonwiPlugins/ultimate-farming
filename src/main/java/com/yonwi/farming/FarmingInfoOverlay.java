@@ -91,6 +91,8 @@ final class FarmingInfoOverlay extends OverlayPanel {
     if (dead && phase.equals("Harvest") && step.kind.equals("herb"))
       return plugin.progress().resurrectNow() ? "Cast Resurrect Crops on the dead herbs" : "Clear the dead herbs";
     if (dead && phase.equals("Clear")) return "Clear the dead tree yourself (spade)";
+    String diseased = index == step.phaseIndex ? plugin.patch().diseasedAction(step) : null;
+    if (diseased != null) return Guidance.diseasedLabel(diseased);
     return step.labels.get(index);
   }
 

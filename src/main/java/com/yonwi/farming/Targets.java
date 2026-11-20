@@ -167,6 +167,9 @@ final class Targets {
   private Object target(Guidance step, String phase, NPC gardener, TileObject patch, NPC leprechaun) {
     if (phase.equals("Travel")) return null;
     if (phase.startsWith("Note")) return leprechaun;
+    // Diseased herbs and the cure is with the tool leprechaun: him first.
+    if (phase.equals(step.phase) && "fetch".equals(plugin.patch().diseasedAction(step)) && leprechaun != null)
+      return leprechaun;
     if (!step.kind.equals("herb") && paysGardener(step, phase)) return gardener;
     return patch;
   }
@@ -386,6 +389,12 @@ final class Targets {
     if (step.phase.equals("Clear")) return Collections.emptySet();
     // Dead herbs: nothing to pick, so no secateurs; just Clear (or Resurrect Crops) on the patch.
     if (step.phase.equals("Harvest") && plugin.patch().dead()) return Collections.emptySet();
+    // Diseased herbs: the plant cure to use on them, or the spade to dig them up.
+    String diseased = plugin.patch().diseasedAction(step);
+    if (diseased != null)
+      return diseased.equals("fetch")
+          ? Collections.emptySet()
+          : FarmingData.itemIds(diseased.equals("cure") ? "Plant cure" : "Spade");
     return usableIds(step.items);
   }
 
@@ -409,6 +418,7 @@ final class Targets {
         && step.phase.equals("Harvest")
         && step.items.contains("Magic secateurs")
         && !plugin.patch().dead()
+        && !plugin.patch().diseased()
         && secateursToWield();
   }
 

@@ -259,6 +259,7 @@ final class FarmingPlanner {
     }
     boolean herbs = hasKind(route, "herb");
     if (herbs) kit.add("Seed dibber", 1);
+    if (settings.carriesCure(route)) kit.add("Plant cure", 1);
     // An owned herb sack comes along: open, it takes the herbs before the inventory does.
     if (settings.has("herbSack") && herbs) kit.bring.put("Herb sack", 1);
     if (removal > 0) kit.add("Coins", removal);
