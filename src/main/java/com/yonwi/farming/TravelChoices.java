@@ -4,8 +4,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -205,7 +207,7 @@ final class TravelChoices {
       case "guildcelastrus":
       case "guildtree":
       case "guildfruit":
-        addFarmingGuild(patch.kind.equals("tree"));
+        addFarmingGuild(patch.id);
         break;
       case "catherby":
         if (has("catherbyPortal")) viaHouse("House teleport → Portal nexus: Catherby, then east to the beach", .85);
@@ -261,12 +263,54 @@ final class TravelChoices {
     }
   }
 
-  /** The guild's tree patches are nearer its teleport spot than the fruit tree and others. */
-  private void addFarmingGuild(boolean treePatch) {
-    if (settings.level >= 99 && has("farmingCape"))
-      carry("Farming cape → Farming Guild", treePatch ? .48 : .62, "Farming cape");
-    if (has("skills")) wear("Skills necklace → Farming Guild", treePatch ? .75 : 1.05, "Skills necklace");
-    if (settings.poh() && has("jewellery")) viaHouse("POH jewellery box → Farming Guild", treePatch ? 1.25 : 1.55);
+  /**
+   * Walking tiles between the Farming Guild's patches and from where its teleports land (about
+   * 1248,3718), measured with the collision map (WorldPath) from each patch's nearest side.
+   */
+  private static final Map<String, Integer> GUILD_FROM_LANDING = new HashMap<>();
+  private static final Map<Set<String>, Integer> GUILD_WALKS = new HashMap<>();
+  /** Minutes per tile walked (running), and the fixed part of any walk within the guild. */
+  private static final double GUILD_MINUTES_PER_TILE = 1 / 80.0;
+  private static final double GUILD_WALK_BASE = .1;
+
+  static {
+    GUILD_FROM_LANDING.put("herbguild", 17);
+    GUILD_FROM_LANDING.put("guildtree", 22);
+    GUILD_FROM_LANDING.put("guildcelastrus", 31);
+    GUILD_FROM_LANDING.put("guildfruit", 38);
+    GUILD_FROM_LANDING.put("guildredwood", 46);
+    guildWalk("herbguild", "guildtree", 6);
+    guildWalk("herbguild", "guildcelastrus", 27);
+    guildWalk("herbguild", "guildfruit", 34);
+    guildWalk("herbguild", "guildredwood", 42);
+    guildWalk("guildtree", "guildcelastrus", 32);
+    guildWalk("guildtree", "guildfruit", 39);
+    guildWalk("guildtree", "guildredwood", 47);
+    guildWalk("guildcelastrus", "guildfruit", 5);
+    guildWalk("guildcelastrus", "guildredwood", 10);
+    guildWalk("guildfruit", "guildredwood", 9);
+  }
+
+  private static void guildWalk(String a, String b, int tiles) {
+    GUILD_WALKS.put(new HashSet<>(Arrays.asList(a, b)), tiles);
+  }
+
+  /** Minutes to walk between two Farming Guild patches. */
+  static double guildWalkCost(String fromId, String toId) {
+    Integer tiles = GUILD_WALKS.get(new HashSet<>(Arrays.asList(fromId, toId)));
+    return GUILD_WALK_BASE + (tiles == null ? 25 : tiles) * GUILD_MINUTES_PER_TILE;
+  }
+
+  /**
+   * Teleport costs are for the tree patch; each other patch adds (or saves) the extra walk from
+   * the landing spot.
+   */
+  private void addFarmingGuild(String patchId) {
+    double extra =
+        (GUILD_FROM_LANDING.getOrDefault(patchId, 38) - GUILD_FROM_LANDING.get("guildtree")) * GUILD_MINUTES_PER_TILE;
+    if (settings.level >= 99 && has("farmingCape")) carry("Farming cape → Farming Guild", .48 + extra, "Farming cape");
+    if (has("skills")) wear("Skills necklace → Farming Guild", .75 + extra, "Skills necklace");
+    if (settings.poh() && has("jewellery")) viaHouse("POH jewellery box → Farming Guild", 1.25 + extra);
   }
 
   private void addAuburnValley() {
@@ -374,7 +418,8 @@ final class TravelChoices {
     String fromId = from.id;
     String toId = to.id;
     Set<String> pair = new HashSet<>(Arrays.asList(fromId, toId));
-    if (inFarmingGuild(fromId) && inFarmingGuild(toId)) return walk("Walk within Farming Guild to " + to.kind + " patch", .4);
+    if (inFarmingGuild(fromId) && inFarmingGuild(toId))
+      return walk("Walk within Farming Guild to " + to.kind + " patch", guildWalkCost(fromId, toId));
     if (fromId.startsWith("fossil") && toId.startsWith("fossil"))
       return walk("Walk to Fossil Island hardwood patch " + toId.substring(6), .12);
     if (pair.containsAll(Arrays.asList("catherby", "herbcatherby"))) return walk("Walk to Catherby " + to.kind + " patch", .5);
